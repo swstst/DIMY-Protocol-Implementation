@@ -1,0 +1,5 @@
+1. What are the hash functions? - output size
+2. Can we use a library for SSS?
+3. Query bloom filter?
+4. Backend stuff? What else does it do/what goes there?
+5. Threads
