@@ -1,0 +1,5 @@
+Both:
+- Discussed paper concepts
+- Started initial system design
+- Collated questions for consultation
+- Started github repo 
