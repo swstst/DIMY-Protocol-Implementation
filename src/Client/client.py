@@ -57,16 +57,6 @@ class client:
             # increment shares index
             i += 1
 
-    def message_drop(self):
-        # how frequently does this need to be?
-        
-        msg = b'Hi'
-        
-
-        if probability*10 < self.p:
-            # drop message
-            ...
-
     def receiver(self):
         # Listening on UDP port for message drops and broadcast shares
         while True:
