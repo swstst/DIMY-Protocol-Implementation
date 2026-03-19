@@ -32,10 +32,10 @@ class backgroundProcess():
         once the EphIDs are generated
         """
         while not self.stop_event.is_set():
-            self.EphID_ready_event.wait(self.EphID_time_var + 2)
+            self.EphID_ready_event.wait(self.EphID_time_var + 2) # Once EphID is ready this is released & code continues
 
-            self.secrets = SharedSecret_gen() # needs to take the new EphID as input
-
+            self.secrets = SharedSecret_gen(self.curr_EphID) # needs to take the new EphID as input
+            
             self.EphID_ready_event.clear()
     
     def SharedSecret_Distribution(self):

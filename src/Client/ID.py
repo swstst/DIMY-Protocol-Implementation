@@ -1,4 +1,6 @@
 from random import SystemRandom
+from Crypto.Protocol.SecretSharing import Shamir
+
 
 import threading
 
@@ -22,11 +24,23 @@ def gen_EphID(G):
 
     return Eph_ID
 
+def SharedSecret_gen(new_EphID, k, n):
+    """
+    Generate k-out-of-n shamir shares
+
+    args:
+        new_EphID => the new ephemeral ID
+        k => the minimum amount of shares needed to reconstruct ID
+        n => ID is split into n shares
+    
+    return:
+        the shares back, the shares are in form (idx, share)
+    """
+    shares = Shamir.split(k, n, new_EphID)
+    return shares
 
 def SharedSecret_Distribution():
     pass
 
-def SharedSecret_gen():
-    pass
 
         
