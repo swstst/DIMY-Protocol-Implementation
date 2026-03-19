@@ -74,9 +74,3 @@ class client:
             
             # store the data somewhere
             print(f"received data: {data}")
-
-
-if __name__ == '__main__':
-    # Create client class
-
-    ...
