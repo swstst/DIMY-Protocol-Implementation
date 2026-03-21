@@ -18,11 +18,12 @@ def gen_EphID(t: int):
     # secret - could use secrets instead of PyCrypto's random lib, however didn't find anything bad about it ...
     d = getrandbits(256)
     
-    EphID = ECC.construct(curve='p256', d=d)
+    keyPair = ECC.construct(curve='p256', d=d)
+    EphID = keyPair.pointQ.x
 
     return EphID
 
-def SharedSecret_gen(new_EphID:tuple, k:int, n:int) -> tuple:
+def SharedSecret_gen(new_EphID, k:int, n:int) -> tuple:
     """
     Generate k-out-of-n shamir shares
 
@@ -36,8 +37,8 @@ def SharedSecret_gen(new_EphID:tuple, k:int, n:int) -> tuple:
     """
 
     # convert ephID into bytes
-    b_secret = (new_EphID.pointQ.x).to_bytes()
-    shares = split(secret = b_secret, parts = n, threshold = k)
+    eph_id_bytes = int(new_EphID).to_bytes(32, byteorder='big')
+    shares = split(secret = eph_id_bytes, parts = n, threshold = k)
 
     return shares
 

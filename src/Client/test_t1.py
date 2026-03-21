@@ -7,8 +7,9 @@ def t15_k3_n5_id() -> None:
       eph_id = gen_EphID(t)
 
       print("="*3, "PUBLIC KEY", "="*3)
-      print(f"Public Key (x): {hex(eph_id.pointQ.x)}")
-      print(f"Public Key (y): {hex(eph_id.pointQ.y)}")
+      #print(f"Public Key (x): {hex(eph_id.pointQ.x)}")
+      #print(f"Public Key (y): {hex(eph_id.pointQ.y)}")
+      print(f"Public Key (x): {hex(eph_id)}")
 
       # test private key generation
       print()
