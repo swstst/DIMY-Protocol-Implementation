@@ -11,6 +11,8 @@ import background_process
 UDP_IP = '127.0.0.1'
 UDP_RECV_PORT = 8000
 UDP_SEND_PORT = 8001
+
+
 class client:
     def __init__(self, t, k, n, p):
         assert(t in {15,18,21,24,27,30})
@@ -30,20 +32,15 @@ class client:
         
         # start listening on receiving UDP port
         self.udp_sock.bind((UDP_IP, UDP_RECV_PORT))
-        
-        # simultaneous broadcast shares 
-        self.broadcast_thread = threading.Thread(target=self.timer_3s, daemon=False)
-        
+        self.background_process_instance = background_process()
+         
         # simultaneous UDP port listening
         self.udp_recv_thread = threading.Thread(target=self.receiver, daemon=False)
 
         # the following need to be moved to some client main thread
-        self.broadcast_thread.start()
+        self.background_process_instance.ID_process()
         self.udp_recv_thread.start()
-        
-
-    def broadcast_shares(self, shares):
-        
+ 
 
     def receiver(self):
         # Listening on UDP port for message drops and broadcast shares
@@ -62,3 +59,7 @@ class client:
             
             # store the data somewhere
             print(f"received data: {data}")
+
+    def stop_everything():
+        self.background_process_instance.stop_all_processes()
+
