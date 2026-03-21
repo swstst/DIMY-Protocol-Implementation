@@ -4,25 +4,27 @@ where all the processes run.
 """
 
 import threading
+import time
+from ID import *
+# import * from ID
 
-import * from ID
-
-class backgroundProcess():
-    def __init__(self, EphID_time):
+class backgroundProcess:
+    def __init__(self, t, k, n):
         self.stop_event = None
-        self.EphID_time_var = EphID_time # this is t
+        self.EphID_time_var = t # this is t
+        self.k = k
+        self.n = n
         self.EphID_ready_event = threading.Event()
         self.secrets_ready_event = threading.Event()
         self.curr_EphID = None
         self.curr_secrets = None
 
-    
     def gen_EphID_every_t(self):
         """
-        The thread process to generate EphIDs every t
+        The thread process to generate EphIDs every t (EphID_time)
         """
         while not self.stop_event.is_set():
-            self.curr_EphID = gen_EphID()
+            self.curr_EphID = gen_EphID(self.EphID_time)
             self.EphID_ready_event.set()
 
             self.stop_event.wait(self.EphID_time_var)
@@ -39,12 +41,11 @@ class backgroundProcess():
             
             self.EphID_ready_event.clear()
     
-    def SharedSecret_Distribution(self, udp_socket, UDP_SEND_PORT):
+    def SharedSecret_Distribution(self, udp_socket, UDP_IP, UDP_SEND_PORT):
+        print("started sending on", UDP_SEND_PORT)
         """
         The thread process to distribute the secrets
-        """
-        UDP_IP = '127.0.0.1'
-        
+        """        
         while not self.stop_event.is_set():
             i = 0
             while True:
@@ -68,13 +69,13 @@ class backgroundProcess():
         SharedSecret_gen_thread will wait and only run everytime EphID is generated and event is cleared
         SSS_thread will run the whole time as well but repeats every time new shares are developed
         """
-        EphID_gen_thread = threading.Thread(target=gen_EphID_every_t, daemon=True)
+        EphID_gen_thread = threading.Thread(target=self.gen_EphID_every_t, daemon=True)
         SharedSecret_gen_thread = threading.Thread(target=SharedSecret_gen, daemon=True)
-        SSS_thread = threading.Thread(target=SharedSecret_Distribution, daemon=True)
+        Broadcast_thread = threading.Thread(target=SharedSecret_Distribution, daemon=False)
 
         EphID_gen_thread.start()
         SharedSecret_gen_thread.start()
-        SSS_thread.start()
+        Broadcast_thread.start()
 
     def stop_all_processes(self):
         self.stop_event.set()
