@@ -5,6 +5,8 @@ import socket
 import random
 import sys
 
+import background_process
+
 # UDP Configuration
 UDP_IP = '127.0.0.1'
 UDP_RECV_PORT = 8000
@@ -42,20 +44,6 @@ class client:
 
     def broadcast_shares(self, shares):
         
-        i = 0
-        
-        while True:
-            # get next share to send
-            share = shares[i]
-            
-            # wait 3 seconds
-            time.sleep(3)
-
-            # broadcast share over UDP
-            self.udp_sock.sendto(share,(UDP_IP, UDP_SEND_PORT))
-
-            # increment shares index
-            i += 1
 
     def receiver(self):
         # Listening on UDP port for message drops and broadcast shares
