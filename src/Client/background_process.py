@@ -9,7 +9,10 @@ from ID import *
 # import * from ID
 
 class backgroundProcess:
-    def __init__(self, t, k, n):
+    def __init__(self, t, k, n, ip, broadcast_port, udp_socket):
+        self.IP = ip
+        self.BROADCAST_PORT = broadcast_port
+        self.udp_socket = udp_socket
         self.stop_event = None
         self.EphID_time_var = t # this is t
         self.k = k
@@ -41,25 +44,21 @@ class backgroundProcess:
             
             self.EphID_ready_event.clear()
     
-    def SharedSecret_Distribution(self, udp_socket, UDP_IP, UDP_SEND_PORT):
-        print("started sending on", UDP_SEND_PORT)
+    def SharedSecret_Distribution(self):
+        print("started sending on", self.UDP_SEND_PORT)
+        
         """
         The thread process to distribute the secrets
         """        
+
         while not self.stop_event.is_set():
-            i = 0
-            while True:
-                # get next share to send
-                share = self.curr_secrets[i]
-                
+            for share in self.curr_secrets:
                 # wait 3 seconds
                 time.sleep(3)
 
                 # broadcast share over UDP
-                udp_socket.sendto(share,(UDP_IP, UDP_SEND_PORT))
+                self.udp_socket.sendto(share,(self.UDP_IP, self.UDP_SEND_PORT))
 
-                # increment shares index
-                i += 1
 
     def ID_processes(self):
         """
@@ -71,7 +70,7 @@ class backgroundProcess:
         """
         EphID_gen_thread = threading.Thread(target=self.gen_EphID_every_t, daemon=True)
         SharedSecret_gen_thread = threading.Thread(target=SharedSecret_gen, daemon=True)
-        Broadcast_thread = threading.Thread(target=SharedSecret_Distribution, daemon=False)
+        Broadcast_thread = threading.Thread(target=self.SharedSecret_Distribution, daemon=False)
 
         EphID_gen_thread.start()
         SharedSecret_gen_thread.start()

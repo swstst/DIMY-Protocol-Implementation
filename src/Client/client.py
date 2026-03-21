@@ -29,7 +29,12 @@ class client:
         
         # start listening on receiving UDP port
         self.udp_sock.bind((UDP_IP, self.UDP_RECV_PORT))
-        self.background_process_instance = background_process.backgroundProcess(t=self.time_cycle, k=self.k, n=self.n)
+        self.background_process_instance = background_process.backgroundProcess(t= self.time_cycle, 
+                                                                                k= self.k, 
+                                                                                n= self.n, 
+                                                                                ip = self.UDP_IP, 
+                                                                                broadcast_port = self.UDP_SEND_PORT,
+                                                                                socket = self.udp_sock)
          
         # simultaneous UDP port listening
         self.udp_recv_thread = threading.Thread(target=self.receiver, daemon=False)
