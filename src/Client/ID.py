@@ -1,14 +1,11 @@
-from random import SystemRandom
+from Crypto.Random.random import getrandbits
 from Crypto.Protocol.SecretSharing import Shamir
+from Crypto.PublicKey import ECC
+from shamir import Shares, split, combine
 
-
-import threading
-
-high_bound = 10**100
-
-def gen_EphID(G):
+def gen_EphID(t: int):
     """
-    Generate Ephemeral IDs 
+    Generate Ephemeral IDs by building a ECC key pair.
 
     args:
         G ==> Generator of Elliptic curve
@@ -16,15 +13,17 @@ def gen_EphID(G):
     returns:
         Eph_ID ==> the resulting ephemeral ID
     """
-    cryptogen = SystemRandom()
+    # use t to seed the randomness (?)
     
-    x = cryptogen.randrange(high_bound) 
-    mask = (1 << 128) - 1
-    Eph_ID = (G**x) & mask
+    # secret - could use secrets instead of PyCrypto's random lib, however didn't find anything bad about it ...
+    d = getrandbits(256)
+    
+    keyPair = ECC.construct(curve='p256', d=d)
+    EphID = keyPair.pointQ.x
 
-    return Eph_ID
+    return EphID
 
-def SharedSecret_gen(new_EphID, k, n):
+def SharedSecret_gen(new_EphID, k:int, n:int) -> tuple:
     """
     Generate k-out-of-n shamir shares
 
@@ -36,11 +35,26 @@ def SharedSecret_gen(new_EphID, k, n):
     return:
         the shares back, the shares are in form (idx, share)
     """
-    shares = Shamir.split(k, n, new_EphID)
+
+    # convert ephID into bytes
+    eph_id_bytes = int(new_EphID).to_bytes(32, byteorder='big')
+    shares = split(secret = eph_id_bytes, parts = n, threshold = k)
+
     return shares
 
-def SharedSecret_Distribution():
-    pass
+def combine_shares(shares: list) -> bytearray:
+    """
+    Reconstruct secret from k shares
 
-
-        
+    args:
+        new_EphID => the new ephemeral ID
+        k => the minimum amount of shares needed to reconstruct ID
+        n => ID is split into n shares
+    
+    return:
+        the shares back, the shares are in form (idx, share)
+    """
+    
+    recovered = combine(shares)
+    return recovered
+    

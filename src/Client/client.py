@@ -1,17 +1,11 @@
-import gen_ID
 import threading
-import time
 import socket
 import random
-import sys
 
 import background_process
 
 # UDP Configuration
 UDP_IP = '127.0.0.1'
-UDP_RECV_PORT = 8000
-UDP_SEND_PORT = 8001
-
 
 class client:
     def __init__(self, t, k, n, p):
@@ -19,6 +13,9 @@ class client:
         assert(k >= 3)
         assert(n >= 5)
         assert(p in {30, 40, 50, 60, 70})
+
+        self.UDP_RECV_PORT = random.randrange(5000, 6000)
+        self.UDP_SEND_PORT = random.randrange(7000, 8000)
 
         self.time_cycle = t     
         self.k = k
@@ -31,18 +28,24 @@ class client:
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         
         # start listening on receiving UDP port
-        self.udp_sock.bind((UDP_IP, UDP_RECV_PORT))
-        self.background_process_instance = background_process()
+        self.udp_sock.bind((UDP_IP, self.UDP_RECV_PORT))
+        self.background_process_instance = background_process.backgroundProcess(t= self.time_cycle, 
+                                                                                k= self.k, 
+                                                                                n= self.n, 
+                                                                                ip = self.UDP_IP, 
+                                                                                broadcast_port = self.UDP_SEND_PORT,
+                                                                                socket = self.udp_sock)
          
         # simultaneous UDP port listening
         self.udp_recv_thread = threading.Thread(target=self.receiver, daemon=False)
 
         # the following need to be moved to some client main thread
-        self.background_process_instance.ID_process()
+        self.background_process_instance.ID_processes()
         self.udp_recv_thread.start()
  
 
     def receiver(self):
+        print("Started listening on port", self.UDP_RECV_PORT)
         # Listening on UDP port for message drops and broadcast shares
         while True:
             # temp buffer size is 1024 bytes
@@ -60,6 +63,6 @@ class client:
             # store the data somewhere
             print(f"received data: {data}")
 
-    def stop_everything():
+    def stop_everything(self):
         self.background_process_instance.stop_all_processes()
 
