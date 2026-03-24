@@ -26,15 +26,21 @@ class Client:
 
         self.stop_event = threading.Event()
         self.secrets_ready_event = threading.Event()
+        self.t_interval_event = threading.Event()
         
+        # UDP socket for shares broadcast
+        self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
         self.curr_EphID = None
         self.curr_HashID = None
         
         self.hashID_queue = Queue(maxsize=2)
         self.shares_queue = Queue()
 
-        # UDP socket for shares broadcast
-        self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # shares received within 't'-seconds
+        self.recv_shares = Queue()
+
+        self.EphIDs = Queue()
 
 
     def gen_EphID_shares_every_t(self):
@@ -122,10 +128,67 @@ class Client:
                 continue
             
             # store the data somewhere
+            self.recv_shares.put([key, ephID])
             
             print("Client:", self.id, "-" * 15, "RECV: got share", ephID, "...", end='\n\n')
 
         return
+
+    def reconstruct_shares(self):
+        """
+        Check if k-shares have been received for any clients given t seconds.
+        """
+        delay = self.t
+        
+        while not self.stop_event.is_set():
+
+            # attempt to reconstruct received shares every t-interval
+            time.sleep(delay)
+
+            # make a copy of the received shares queue
+            recv_shares_copy = self.recv_shares
+
+            # get length of received shares copy to prevent race conditions
+            num_recv_shares = recv_shares_copy.qsize()
+
+            # temporary hash map to store and process received shares
+            shares = dict()
+
+            # remove processed shares from recv_shares queue
+            for _ in range(num_recv_shares):
+                
+                data = self.recv_shares.get()
+                
+                k, v = bytes(data[0]), data[1]
+
+                if k not in shares.keys():
+                    shares[k] = [v]
+                    
+                    continue
+
+                shares[k].append(v)
+
+            for hash_id, ephID_shares in shares.items():
+                
+                # do nothing if not enough shares received
+                if len(ephID_shares) < self.k:
+                    continue
+
+                # otherwise, reconstruct the shares
+                temp_ephID = combine_shares(ephID_shares)
+
+                ephID_hash = SHA256.new(temp_ephID).digest()[0:len(hash_id)]
+
+                # verify reconstructed shares
+                if ephID_hash != hash_id:
+                    continue
+
+                valid_ephID = temp_ephID
+                    
+                # successful reconstruction of shares can proceed to generate EncID.
+                print("Client:", self.id, "-" * 15, "!! Successful reconstruction of EphID", valid_ephID, end='\n\n')
+
+                self.EphIDs.put(valid_ephID)
 
 
     def run(self):
@@ -153,11 +216,13 @@ class Client:
         udp_recv_thread = threading.Thread(target=self.receiver, daemon=False)
         gen_EphID_shares_thread = threading.Thread(target=self.gen_EphID_shares_every_t, daemon=True)
         broadcast_thread = threading.Thread(target=self.broadcast_shares, daemon=False)
+        reconstruct_ephID_thread = threading.Thread(target=self.reconstruct_shares, daemon=False)
 
         # start threads
         udp_recv_thread.start()
         gen_EphID_shares_thread.start()
         broadcast_thread.start()
+        reconstruct_ephID_thread.start()
 
         while True:
             try:
@@ -169,11 +234,11 @@ class Client:
                 udp_recv_thread.join()
                 gen_EphID_shares_thread.join()
                 broadcast_thread.join()
+                reconstruct_ephID_thread.join()
 
                 print("Goodbye!")
 
                 sys.exit(1)
-                
 
     def stop_all_processes(self):
         self.stop_event.set()         
