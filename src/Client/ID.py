@@ -37,7 +37,7 @@ def gen_EphID(t: int):
     return EphID
 
 
-def SharedSecret_gen(new_EphID, k:int, n:int) -> tuple:
+def gen_shares(new_EphID, k:int, n:int) -> tuple:
     """
     Generate k-out-of-n shamir shares
 

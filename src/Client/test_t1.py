@@ -4,25 +4,24 @@ def t15_k3_n5_id() -> None:
       t = 15
       k = 3
       n = 5
-      eph_id = gen_EphID(t)
+      
+      keypair = gen_keyPair(d)
 
       print("="*3, "PUBLIC KEY", "="*3)
-      #print(f"Public Key (x): {hex(eph_id.pointQ.x)}")
-      #print(f"Public Key (y): {hex(eph_id.pointQ.y)}")
-      print(f"Public Key (x): {hex(eph_id)}")
+      print(f"Public Key (x): {hex(keypair.pointQ.x)}")
+      print(f"Public Key (y): {hex(keypair.pointQ.y)}")
 
       # test private key generation
       print()
       print("="*3, "PRIVATE KEY PEM format", "="*3)
       d = getrandbits(256)
-      keypair = gen_keyPair(d)
       priv_key = keypair.export_key(format="PEM")
       print(priv_key)
       print()
 
       # verify SSS
       eph_id = keypair.pointQ.x
-      shares = SharedSecret_gen(eph_id, k, n)
+      shares = gen_shares(eph_id, k, n)
       assert len(shares) == n, f"ID.py Err: {n} shares required but only got {len(shares)}"
       
       # test reconstruction of secrets with n-n shares

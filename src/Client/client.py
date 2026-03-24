@@ -1,3 +1,4 @@
+import sys
 import threading
 import socket
 import random
@@ -7,13 +8,8 @@ import background_process
 # UDP Configuration
 UDP_IP = '127.0.0.1'
 
-class client:
-    def __init__(self, t, k, n, p):
-        assert(t in {15,18,21,24,27,30})
-        assert(k >= 3)
-        assert(n >= 5)
-        assert(p in {30, 40, 50, 60, 70})
-
+class Client:
+    def __init__(self, t:int, k:int, n:int, p:int):
         self.UDP_RECV_PORT = random.randrange(5000, 6000)
         self.UDP_SEND_PORT = random.randrange(7000, 8000)
 
@@ -32,9 +28,9 @@ class client:
         self.background_process_instance = background_process.backgroundProcess(t= self.time_cycle, 
                                                                                 k= self.k, 
                                                                                 n= self.n, 
-                                                                                ip = self.UDP_IP, 
+                                                                                ip = UDP_IP, 
                                                                                 broadcast_port = self.UDP_SEND_PORT,
-                                                                                socket = self.udp_sock)
+                                                                                udp_socket = self.udp_sock)
          
         # simultaneous UDP port listening
         self.udp_recv_thread = threading.Thread(target=self.receiver, daemon=False)
@@ -66,3 +62,41 @@ class client:
     def stop_everything(self):
         self.background_process_instance.stop_all_processes()
 
+
+if __name__ == '__main__':
+    # graceful invalid input handling
+    try:
+        # Unpack arguments
+        t, k, n, p = sys.argv[1:5]
+
+        # Convert to integers
+        t, k, n, p = int(t), int(k), int(n), int(p)
+
+        # Create client class
+        client = Client(t=t, k=k, n=n, p=p)
+
+    except ValueError as ve:
+        # Handle invalid integer conversion
+        for name, value in zip(["t", "k", "n", "p"], sys.argv[1:5]):
+            if not value.isdigit():
+                print(f"[!] Invalid value for '{name}': integer required")
+
+            # match (name):
+            #     case 't':
+            #         if not t in {15,18,21,24,27,30}: print("[!] Invalid value: 't' must be {15, 18, 21, 24, 27, 30}")
+                    
+            #     case 'k':
+            #         if not (k >= 3): print("[!] Invalid value: 'k' must be >= 3")
+                    
+            #     case 'n':
+            #          if not (n >= 5): print("[!] Invalid value: 'n' must be >= 3")
+
+            #     case 'p':
+            #         if not p in {30, 40, 50, 60, 70}: print("[!] Invalid value: 'p' must be {30, 40, 50, 60, 70}")                 
+
+        sys.exit(1)
+
+    except Exception as e:
+        # Handle wrong number of arguments or other errors
+        print("[!] Invalid number of arguments passed: Require 'python client.py <time> <k-value> <n-value> <probability>'.")
+        sys.exit(1)
