@@ -2,101 +2,217 @@ import sys
 import threading
 import socket
 import random
+import time
+from queue import *
+from Crypto.Hash import SHA256
 
-import background_process
+from ID import *
 
 # UDP Configuration
-UDP_IP = '127.0.0.1'
+UDP_BROADCAST_ADDR = '127.0.0.1'
 
 class Client:
     def __init__(self, t:int, k:int, n:int, p:int):
-        self.UDP_RECV_PORT = random.randrange(5000, 6000)
-        self.UDP_SEND_PORT = random.randrange(7000, 8000)
 
-        self.time_cycle = t     
+        self.id = random.randrange(1000,10_000)
+        
+        self.UDP_RECV_PORT = 5000
+        self.UDP_SEND_PORT = 5000
+
+        self.t = t     
         self.k = k
         self.n = n    
-
-        # message drop received probability 
         self.p = int(p)
+
+        self.stop_event = threading.Event()
+        self.secrets_ready_event = threading.Event()
+        
+        self.curr_EphID = None
+        self.curr_HashID = None
+        
+        self.hashID_queue = Queue(maxsize=2)
+        self.shares_queue = Queue()
 
         # UDP socket for shares broadcast
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+
+    def gen_EphID_shares_every_t(self):
+        """
+        The thread process to generate EphIDs every t (EphID_time)
+        """        
+        while not self.stop_event.is_set():
+
+            # generate new EphID
+            self.curr_EphID = gen_EphID(self.t)
+            print("Client", self.id, ": New EphID generated")
+            print(self.curr_EphID, end='\n\n')
+
+            # generate new HashID based on EphID
+            hash_EphID = bytearray(SHA256.new(data=self.curr_EphID.to_bytes(32, byteorder='big')).digest())[0:3]
+            
+            self.hashID_queue.put(hash_EphID)
+            print("Client:", self.id, "New HashID generated")
+            print(hash_EphID, end='\n\n')
+
+            # split new EphID into n shares
+            new_shares = gen_shares(new_EphID=self.curr_EphID, k=self.k, n=self.n) 
+            print("Client", self.id, ": New secret shares generated")
+            for i, share in enumerate(new_shares):
+                print(i, ":", share[:5], "...")
+                
+            print()
+
+            # store shares in broadcast queue
+            self.shares_queue.put(new_shares)
+            
+            # wait t seconds before generating new shares
+            time.sleep(self.t)
+
+        return
         
-        # start listening on receiving UDP port
-        self.udp_sock.bind((UDP_IP, self.UDP_RECV_PORT))
-        self.background_process_instance = background_process.backgroundProcess(t= self.time_cycle, 
-                                                                                k= self.k, 
-                                                                                n= self.n, 
-                                                                                ip = UDP_IP, 
-                                                                                broadcast_port = self.UDP_SEND_PORT,
-                                                                                udp_socket = self.udp_sock)
-         
-        # simultaneous UDP port listening
-        self.udp_recv_thread = threading.Thread(target=self.receiver, daemon=False)
 
-        # the following need to be moved to some client main thread
-        self.background_process_instance.ID_processes()
-        self.udp_recv_thread.start()
+    def broadcast_shares(self):
+        """
+        The thread process to distribute the secrets every 3 seconds
+        """        
+        print("Started broadcasting on port", self.UDP_SEND_PORT, end='\n')
+        
+        while not self.stop_event.is_set():
+            
+            shares = self.shares_queue.get(block = True)
+            self.curr_HashID = self.hashID_queue.get(block = True)
+            
+            for share in shares:
+                msg = self.curr_HashID + share
+
+                print("Client:", self.id, "-" * 5, "SEND:", msg[:10], end='\n\n')
+                
+                # broadcast share over UDP
+                self.udp_sock.sendto(msg,(UDP_BROADCAST_ADDR, self.UDP_SEND_PORT))
+                
+                # wait 3 seconds before broadcasting new shares
+                time.sleep(3)
+        return
+        
  
-
     def receiver(self):
-        print("Started listening on port", self.UDP_RECV_PORT)
+        print("-" * 15,"RECV: Started listening on port", self.UDP_RECV_PORT, end='\n\n')
+        
         # Listening on UDP port for message drops and broadcast shares
-        while True:
-            # temp buffer size is 1024 bytes
-            data, addr = self.udp_sock.recvfrom(1024)
+        while not self.stop_event.is_set():
+            
+            # should be receiving 32 + 3 bytes at a time
+            data, addr = self.udp_sock.recvfrom(35)
 
             if not data:
                 continue
-            
-            p = random.random(0, 1)
-                
-            if p * 10 < self.p:
-                print("message dropped")
+
+            # process data:
+            d = bytearray(data)
+            key, ephID = d[0:3], d[3:]
+
+            if self.curr_HashID == key:
+                continue
+
+            p = random.randrange(0, 100)
+                        
+            if p < self.p:
+                print("Client:", self.id, "-" * 15, f"RECV: p = {p}, message dropped", end='\n\n')
                 continue
             
             # store the data somewhere
-            print(f"received data: {data}")
+            
+            print("Client:", self.id, "-" * 15, "RECV: got share", ephID, "...", end='\n\n')
 
-    def stop_everything(self):
-        self.background_process_instance.stop_all_processes()
+        return
+
+
+    def run(self):
+        """
+        Main process
+
+        udp_recv_thread will start as soon as client has been instantiated
+        gen_EphID_shares_thread will run on it's own the whole time, 
+        broadcast_thread will start once self.shares_queue is not empty
+        
+        """
+        
+        # enable address reuse
+        self.udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        try:
+            self.udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            
+        except AttributeError:
+            pass         
+    
+        # start listening on receiving UDP port
+        self.udp_sock.bind((UDP_BROADCAST_ADDR, self.UDP_RECV_PORT))
+        
+        udp_recv_thread = threading.Thread(target=self.receiver, daemon=False)
+        gen_EphID_shares_thread = threading.Thread(target=self.gen_EphID_shares_every_t, daemon=True)
+        broadcast_thread = threading.Thread(target=self.broadcast_shares, daemon=False)
+
+        # start threads
+        udp_recv_thread.start()
+        gen_EphID_shares_thread.start()
+        broadcast_thread.start()
+
+        while True:
+            try:
+                pass
+            except KeyboardInterrupt:
+                print("Shutting down client...")
+                self.stop_all_processes()
+
+                udp_recv_thread.join()
+                gen_EphID_shares_thread.join()
+                broadcast_thread.join()
+
+                print("Goodbye!")
+
+                sys.exit(1)
+                
+
+    def stop_all_processes(self):
+        self.stop_event.set()         
 
 
 if __name__ == '__main__':
     # graceful invalid input handling
-    try:
-        # Unpack arguments
-        t, k, n, p = sys.argv[1:5]
+    # try:
+    
+    # Unpack arguments
+    t, k, n, p = sys.argv[1:5]
+    # Convert to integers
+    t, k, n, p = int(t), int(k), int(n), int(p)
+    # Create client class
+    client = Client(t=t, k=k, n=n, p=p)
+    client.run()
 
-        # Convert to integers
-        t, k, n, p = int(t), int(k), int(n), int(p)
+    # except ValueError as ve:
+    #     # Handle invalid integer conversion
+    #     for name, value in zip(["t", "k", "n", "p"], sys.argv[1:5]):
+    #         if not value.isdigit():
+    #             print(f"[!] Invalid value for '{name}': integer required")
 
-        # Create client class
-        client = Client(t=t, k=k, n=n, p=p)
-
-    except ValueError as ve:
-        # Handle invalid integer conversion
-        for name, value in zip(["t", "k", "n", "p"], sys.argv[1:5]):
-            if not value.isdigit():
-                print(f"[!] Invalid value for '{name}': integer required")
-
-            # match (name):
-            #     case 't':
-            #         if not t in {15,18,21,24,27,30}: print("[!] Invalid value: 't' must be {15, 18, 21, 24, 27, 30}")
+    #         # match (name):
+    #         #     case 't':
+    #         #         if not t in {15,18,21,24,27,30}: print("[!] Invalid value: 't' must be {15, 18, 21, 24, 27, 30}")
                     
-            #     case 'k':
-            #         if not (k >= 3): print("[!] Invalid value: 'k' must be >= 3")
+    #         #     case 'k':
+    #         #         if not (k >= 3): print("[!] Invalid value: 'k' must be >= 3")
                     
-            #     case 'n':
-            #          if not (n >= 5): print("[!] Invalid value: 'n' must be >= 3")
+    #         #     case 'n':
+    #         #          if not (n >= 5): print("[!] Invalid value: 'n' must be >= 5")
 
-            #     case 'p':
-            #         if not p in {30, 40, 50, 60, 70}: print("[!] Invalid value: 'p' must be {30, 40, 50, 60, 70}")                 
+    #         #     case 'p':
+    #         #         if not p in {30, 40, 50, 60, 70}: print("[!] Invalid value: 'p' must be {30, 40, 50, 60, 70}")                 
 
-        sys.exit(1)
+    #     sys.exit(1)
 
-    except Exception as e:
-        # Handle wrong number of arguments or other errors
-        print("[!] Invalid number of arguments passed: Require 'python client.py <time> <k-value> <n-value> <probability>'.")
-        sys.exit(1)
+    # except Exception as e:
+    #     # Handle wrong number of arguments or other errors
+    #     print("[!] Invalid number of arguments passed: Require 'python client.py <time> <k-value> <n-value> <probability>'.")
+    #     sys.exit(1)

@@ -7,13 +7,12 @@ import threading
 import time
 
 from queue import *
-
 from ID import *
-
+from Crypto.Hash import SHA256
 class backgroundProcess:
-    def __init__(self, t, k, n, ip, broadcast_port, udp_socket):
+    def __init__(self, t, k, n, broadcast_addr, broadcast_port, udp_socket):
         
-        self.IP = ip
+        self.BROADCAST_ADDR = broadcast_addr
         self.BROADCAST_PORT = broadcast_port
         self.SOCKET = udp_socket
         
@@ -26,30 +25,37 @@ class backgroundProcess:
         self.secrets_ready_event = threading.Event()
         
         self.curr_EphID = None
+        self.curr_HashID = Queue(maxsize=2)
         self.shares_queue = Queue()
 
     def gen_EphID_shares_every_t(self):
         """
         The thread process to generate EphIDs every t (EphID_time)
-        """
-        print("\n\ngen_EphID thread started")
-        
+        """        
         while not self.stop_event.is_set():
 
             # generate new EphID
             self.curr_EphID = gen_EphID(self.t)
-            print("new EphID generated\n", self.curr_EphID)
+            print("New EphID generated")
+            print(self.curr_EphID, end='\n\n')
+
+            # generate new HashID based on EphID
+            hash_EphID = bytearray(SHA256.new(data=self.curr_EphID.to_bytes(32, byteorder='big')).digest())[0:4]
+            self.curr_HashID.put(hash_EphID)
+            print("New HashID generated")
+            print(hash_EphID, end='\n\n')
 
             # split new EphID into n shares
             new_shares = gen_shares(new_EphID=self.curr_EphID, k=self.k, n=self.n) 
-            print("new secret shares generated")
-            for share in new_shares:
-                print(share)
+            print("New secret shares generated")
+            for i, share in enumerate(new_shares):
+                print(i, ":", share[:5], "...")
+                
+            print()
 
             # store shares in broadcast queue
             self.shares_queue.put(new_shares)
             
-
             # wait t seconds before generating new shares
             time.sleep(self.t)
 
@@ -58,19 +64,20 @@ class backgroundProcess:
         """
         The thread process to distribute the secrets every 3 seconds
         """        
-        print("\n\nsharedSecret thread started")
-
-        print("started broadcasting on port", self.BROADCAST_PORT)
+        print("Started broadcasting on port", self.BROADCAST_PORT, end='\n')
         
         while not self.stop_event.is_set():
             
             shares = self.shares_queue.get(block = True)
+            hashID = self.curr_HashID.get(block = True)
             
             for share in shares:
-                # broadcast share over UDP
-                self.SOCKET.sendto(share,(self.IP, self.BROADCAST_PORT))
+                msg = hashID + share
+
+                print("-" * 5, "SEND:", msg, end='\n\n')
                 
-                print("share sent", share)
+                # broadcast share over UDP
+                self.SOCKET.sendto(share,(self.BROADCAST_ADDR, self.BROADCAST_PORT))
                 
                 # wait 3 seconds before broadcasting new shares
                 time.sleep(3)
@@ -83,8 +90,6 @@ class backgroundProcess:
         SSS_thread will run the whole time as well but repeats every time new shares are developed
         
         """
-
-        print("Starting background processes")
         
         gen_EphID_shares_thread = threading.Thread(target=self.gen_EphID_shares_every_t, daemon=True)
         broadcast_thread = threading.Thread(target=self.broadcast_shares, daemon=False)
