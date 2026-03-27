@@ -3,32 +3,45 @@ from Crypto.Protocol.SecretSharing import Shamir
 from Crypto.PublicKey import ECC
 from shamir import Shares, split, combine
 
-def gen_EphID(t: int):
+def gen_keyPair(d: int):
     """
-    Generate Ephemeral IDs by building a ECC key pair.
+    Generate ECC key pair for Ephemeral IDs.
 
     args:
-        G ==> Generator of Elliptic curve
+        d ==> random 256-bit secret
 
     returns:
-        Eph_ID ==> the resulting ephemeral ID
+        keyPair ==> ECC key pair 
+        
+    """
+    keyPair = ECC.construct(curve='p256', d=d)
+    return keyPair
+
+def gen_EphID(t: int):
+    """
+    Generate Ephemeral IDs
+
+    args:
+        t ==> time to seed randomness (if possible)
+
+    returns:
+        Eph_ID ==> the resulting ephemeral ID (public key of ECC key pair)
     """
     # use t to seed the randomness (?)
     
     # secret - could use secrets instead of PyCrypto's random lib, however didn't find anything bad about it ...
     d = getrandbits(256)
     
-    keyPair = ECC.construct(curve='p256', d=d)
-    EphID = keyPair.pointQ.x
+    EphID = gen_keyPair(d).pointQ.x
 
     return EphID
 
-def SharedSecret_gen(new_EphID, k:int, n:int) -> tuple:
+
+def gen_shares(new_EphID, k:int, n:int) -> tuple:
     """
     Generate k-out-of-n shamir shares
 
-    args:
-        new_EphID => the new ephemeral ID
+    args:        new_EphID => the new ephemeral ID
         k => the minimum amount of shares needed to reconstruct ID
         n => ID is split into n shares
     
@@ -57,4 +70,3 @@ def combine_shares(shares: list) -> bytearray:
     
     recovered = combine(shares)
     return recovered
-    

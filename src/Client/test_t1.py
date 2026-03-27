@@ -4,34 +4,36 @@ def t15_k3_n5_id() -> None:
       t = 15
       k = 3
       n = 5
-      eph_id = gen_EphID(t)
+      
+      keypair = gen_keyPair(d)
 
       print("="*3, "PUBLIC KEY", "="*3)
-      #print(f"Public Key (x): {hex(eph_id.pointQ.x)}")
-      #print(f"Public Key (y): {hex(eph_id.pointQ.y)}")
-      print(f"Public Key (x): {hex(eph_id)}")
+      print(f"Public Key (x): {hex(keypair.pointQ.x)}")
+      print(f"Public Key (y): {hex(keypair.pointQ.y)}")
 
       # test private key generation
       print()
       print("="*3, "PRIVATE KEY PEM format", "="*3)
-      priv_key = eph_id.export_key(format="PEM")
+      d = getrandbits(256)
+      priv_key = keypair.export_key(format="PEM")
       print(priv_key)
       print()
 
       # verify SSS
-      shares = SharedSecret_gen(eph_id, k, n)
+      eph_id = keypair.pointQ.x
+      shares = gen_shares(eph_id, k, n)
       assert len(shares) == n, f"ID.py Err: {n} shares required but only got {len(shares)}"
       
       # test reconstruction of secrets with n-n shares
-      _n_n_shares = verify_k_of_n_shares_reconstruction(shares, (eph_id.pointQ.x).to_bytes(), n, n)
+      _n_n_shares = verify_k_of_n_shares_reconstruction(shares, eph_id.to_bytes(), n, n)
       assert (_n_n_shares == True), "ID.py Err: shares not constructed correctly"
       
       # test reconstruction of secrets with insufficient shares
-      _i_n_shares = verify_k_of_n_shares_reconstruction([shares[1], shares[3]],(eph_id.pointQ.x).to_bytes(), 2, n)
+      _i_n_shares = verify_k_of_n_shares_reconstruction([shares[1], shares[3]], eph_id.to_bytes(), 2, n)
       assert (_i_n_shares == False), "ID.py Err: shares not constructed correctly"
 
       # test reconstruction of secrets with k-n shares
-      _k_n_shares = verify_k_of_n_shares_reconstruction(shares[:k], (eph_id.pointQ.x).to_bytes(), k, n)
+      _k_n_shares = verify_k_of_n_shares_reconstruction(shares[:k], eph_id.to_bytes(), k, n)
       assert (_k_n_shares == True), "ID.py Err: shares not constructed correctly"
 
 
