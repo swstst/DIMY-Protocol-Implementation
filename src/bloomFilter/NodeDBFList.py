@@ -13,7 +13,6 @@ class NodeDBFList():
 
         self.scheduler = BlockingScheduler()
         self.scheduler.add_job(_DBF_add, 'interval', seconds=t*6)
-        self.scheduler.add_job(_DBF_remove, 'internal', seconds=(t*6)/600)
         self.scheduler.start()
    
     # TODO maybe add a __repr__ in the bloomFilter class? to have beautiful prints
@@ -26,9 +25,8 @@ class NodeDBFList():
             new_DBF = bloomFilter(n, m)
             self.DBFs.appendleft(new_DBF)
 
-    def _DBF_remove(self):
-        with DBF_lock:
-            self.DBFs.pop()
+            if len(self.DBFs) > 6: # if there's more than 6 remove, this is essentially delete on 36t/60
+                self.DBFs.pop()
 
     def curr_DBF(self):
         with DBF_lock:
