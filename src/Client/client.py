@@ -8,6 +8,9 @@ from Crypto.Hash import SHA256
 
 from ID import *
 
+from bloomFilter.NodeDBFList import NodeDBFList
+from bloomFilter.bloomFilter import bloomFilter
+
 # UDP Configuration
 UDP_BROADCAST_ADDR = '127.0.0.1'
 
@@ -23,6 +26,8 @@ class Client:
         self.k = k
         self.n = n    
         self.p = int(p)
+
+        self.DBF_list = NodeDBFList(t, n, m)
 
         self.stop_event = threading.Event()
         self.secrets_ready_event = threading.Event()
@@ -193,7 +198,9 @@ class Client:
                 
                 encID = ECDH(valid_ephID, self.curr_secret)
                 
-                #TODO put encID into bloom filter
+                # put encID into bloom filter
+                curr_filter = self.DBF_list.curr_DBF()
+                curr_filter.add_element(encID)
 
 
     def run(self):
