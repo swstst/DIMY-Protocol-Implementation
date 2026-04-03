@@ -2,6 +2,7 @@ from Crypto.Random.random import getrandbits
 from Crypto.Protocol.SecretSharing import Shamir
 from Crypto.PublicKey import ECC
 from shamir import Shares, split, combine
+import math
 
 def gen_keyPair(d: int):
     """
@@ -34,7 +35,7 @@ def gen_EphID(t: int):
     
     EphID = gen_keyPair(d).pointQ.x
 
-    return EphID
+    return EphID, d
 
 
 def gen_shares(new_EphID, k:int, n:int) -> tuple:
@@ -69,4 +70,40 @@ def combine_shares(shares: list) -> bytearray:
     """
     
     recovered = combine(shares)
+
     return recovered
+
+def ECDH(pk, sk):
+    """
+    Elliptic Curve Diffie Hellman key exchange to get shared secret
+
+    args:
+        pk => public key of exchange buddy, in this case only the x of (x,y)
+        sk => private key
+
+    return:
+        sharedSecret.x => x point of the shared secret of the exchange
+    """
+    # FIPS 186-4 NIST prime
+    p = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
+
+    # FIPS constant
+    b = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
+
+    x = int(pk)
+    y_squared = (x**3 - 3*x + b) % p # p256 curve equation
+
+    # Tonelli-Shanks Algorithm to get Mod roots
+    y = pow(y_squared, (p + 1) // 4, p) # get the y back ( decompress )
+
+    #TODO confirm that this has neglible guessing advantage
+
+    assert((y * y) % p == y_squared)
+
+    # full public key
+    pub_key = ECC.construct(curve='p256', point_x=x, point_y=y).pointQ
+
+    sharedSecret = pub_key * sk
+
+    return sharedSecret
+

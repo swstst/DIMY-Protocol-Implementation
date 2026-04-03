@@ -8,6 +8,9 @@ from Crypto.Hash import SHA256
 
 from ID import *
 
+from bloomFilter.NodeDBFList import NodeDBFList
+from bloomFilter.bloomFilter import bloomFilter
+
 # UDP Configuration
 UDP_BROADCAST_ADDR = '127.0.0.1'
 
@@ -24,6 +27,8 @@ class Client:
         self.n = n    
         self.p = int(p)
 
+        self.DBF_list = NodeDBFList(t, n, m)
+
         self.stop_event = threading.Event()
         self.secrets_ready_event = threading.Event()
         self.t_interval_event = threading.Event()
@@ -32,6 +37,7 @@ class Client:
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         self.curr_EphID = None
+        self.curr_secret = None
         self.curr_HashID = None
         
         self.hashID_queue = Queue(maxsize=2)
@@ -50,7 +56,7 @@ class Client:
         while not self.stop_event.is_set():
 
             # generate new EphID
-            self.curr_EphID = gen_EphID(self.t)
+            self.curr_EphID, self.curr_secret = gen_EphID(self.t)
             print("Client", self.id, ": New EphID generated")
             print(self.curr_EphID, end='\n\n')
 
@@ -191,6 +197,12 @@ class Client:
                 print("Client:", self.id, "-" * 15, "!! Successful reconstruction of EphID", valid_ephID, end='\n\n')
 
                 self.EphIDs.put(valid_ephID)
+                
+                encID = ECDH(valid_ephID, self.curr_secret)
+                
+                # put encID into bloom filter
+                curr_filter = self.DBF_list.curr_DBF()
+                curr_filter.add_element(encID)
                 
             end_time = time.perf_counter()
             elapsed_time = end_time - start_time
