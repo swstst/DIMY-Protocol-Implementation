@@ -32,6 +32,7 @@ class Client:
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         self.curr_EphID = None
+        self.curr_secret = None
         self.curr_HashID = None
         
         self.hashID_queue = Queue(maxsize=2)
@@ -50,7 +51,7 @@ class Client:
         while not self.stop_event.is_set():
 
             # generate new EphID
-            self.curr_EphID = gen_EphID(self.t)
+            self.curr_EphID, self.curr_secret = gen_EphID(self.t)
             print("Client", self.id, ": New EphID generated")
             print(self.curr_EphID, end='\n\n')
 
@@ -189,6 +190,10 @@ class Client:
                 print("Client:", self.id, "-" * 15, "!! Successful reconstruction of EphID", valid_ephID, end='\n\n')
 
                 self.EphIDs.put(valid_ephID)
+                
+                encID = ECDH(valid_ephID, self.curr_secret)
+                
+                #TODO put encID into bloom filter
 
 
     def run(self):

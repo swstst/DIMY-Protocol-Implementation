@@ -35,7 +35,7 @@ def gen_EphID(t: int):
     
     EphID = gen_keyPair(d).pointQ.x
 
-    return EphID
+    return EphID, d
 
 
 def gen_shares(new_EphID, k:int, n:int) -> tuple:
