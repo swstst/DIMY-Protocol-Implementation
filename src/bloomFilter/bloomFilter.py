@@ -32,7 +32,7 @@ class bloomFilter():
             return False
         return True
 
-    def check_membership(item) -> bool:
+    def check_membership(self, item) -> bool:
         positions = self.__filter_positions__(item)
 
         for pos in positions:
