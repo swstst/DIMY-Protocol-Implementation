@@ -139,12 +139,14 @@ class Client:
         Check if k-shares have been received for any clients given t seconds.
         """
         delay = self.t
+        elapsed_time = 0
         
         while not self.stop_event.is_set():
 
             # attempt to reconstruct received shares every t-interval
-            time.sleep(delay)
+            time.sleep(delay - elapsed_time)
 
+            start_time = time.perf_counter() 
             # make a copy of the received shares queue
             recv_shares_copy = self.recv_shares
 
@@ -189,6 +191,9 @@ class Client:
                 print("Client:", self.id, "-" * 15, "!! Successful reconstruction of EphID", valid_ephID, end='\n\n')
 
                 self.EphIDs.put(valid_ephID)
+                
+            end_time = time.perf_counter()
+            elapsed_time = end_time - start_time
 
 
     def run(self):
