@@ -32,5 +32,9 @@ class NodeDBFList():
         with self.DBF_lock:
             return self.DBFs[0]
 
+    def get_curr_DBF_queue(self):
+        with self.DBF_lock:
+            return self.DBFs
+
     def stop(self):
         self.scheduler.shutdown()

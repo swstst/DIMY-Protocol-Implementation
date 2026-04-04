@@ -216,16 +216,14 @@ class Client:
 
     def gen_cbf(self):
         """
-
         Combines all available DBFs into a single bloom filter - CBF.
-        
         """
-        curr_DBF_list = self.DBF_list
+        curr_DBF_list = self.DBF_list.get_curr_DBF_queue()
 
         for dbf in curr_DBF_list:
             self.CBF.add_element(dbf)
 
-        return 
+        return True
 
 
     def tcp_client(self):
