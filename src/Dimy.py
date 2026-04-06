@@ -1,6 +1,7 @@
 import sys
 import threading
 import socket
+import pickle
 import random
 import time
 from queue import *
@@ -35,13 +36,15 @@ class Client:
         self.p = int(p)
 
         self.DBF_list = NodeDBFList(t, n, m)
-        self.CBF = bloomFilter(n=6, m=800_000)
-        self.QBF = bloomFilter(n=6, m=800_000)
+        self.QBF = None
 
         self.stop_event = threading.Event()
         self.secrets_ready_event = threading.Event()
         self.t_interval_event = threading.Event()
         self.gen_qbf_stop = threading.Event()
+
+        self.scheduler = BlockingScheduler()
+        self.scheduler.add_job(self._make_DBFs, 'interval', seconds=t*6*6)
 
         self.curr_EphID = None
         self.curr_secret = None
@@ -212,19 +215,43 @@ class Client:
                 # put encID into bloom filter
                 curr_filter = self.DBF_list.curr_DBF()
                 curr_filter.add_element(encID)
-        
-
-    def gen_cbf(self):
+    
+    def _combine_DBFs(self):
         """
-        Combines all available DBFs into a single bloom filter - CBF.
+        Combines all available DBFs into a single bloom filter.
         """
+        aggr_bloomFilter = bloomFilter(n=6, m=800_000)
         curr_DBF_list = self.DBF_list.get_curr_DBF_queue()
 
         for dbf in curr_DBF_list:
-            self.CBF.add_element(dbf)
+            aggr_bloomFilter.add_element(dbf)
 
-        return True
+        return aggr_bloomFilter
 
+    def _upload_cbf(self):
+        CBF = self._combine_DBFs()
+
+        # pickle (make into complex python native data streams) the filter
+        pickled_cbf = pickle.dumps(("CBF", CBF))
+
+        self.TCP_SOCK.sendall(pickled_cbf)
+
+        resp = self.TCP_SOCK.recv(1024).decode()
+
+        return resp
+
+    def _make_qbf(self):
+        self.QBF = self._combine_DBFs()
+
+    def _send_qbf(self):
+        # pickle (make into complex python native data streams) the filter
+        pickled_qbf = pickle.dumps(("QBF", self.QBF))
+
+        self.TCP_SOCK.sendall(pickled_qbf)
+
+        resp = self.TCP_SOCK.recv(1024).decode()
+
+        return resp
 
     def tcp_client(self):
 
@@ -232,11 +259,7 @@ class Client:
             
             if self.has_COVID:
                 
-                self.gen_cbf()
-                
-                self.TCP_SOCK.sendall(self.CBF)
-
-                resp = self.TCP_SOCK.recv(1024).decode()
+                resp = self._upload_cbf()
 
                 print(resp)
                 
@@ -246,9 +269,8 @@ class Client:
                 return
 
             else:
-                self.TCP_SOCK.sendall(self.qbf)
-                
-                resp = self.TCP_SOCK.recv(1024).decode()
+
+                resp = self._send_qbf()
 
                 print(resp)
 

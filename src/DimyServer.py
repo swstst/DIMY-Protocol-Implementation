@@ -1,4 +1,4 @@
-import socket
+import socket, pickle
 
 from random import randint
 
@@ -17,5 +17,23 @@ class Server:
             self.TCP_SOCK.bind((self.ADDR, self.PORT))
 
             self.TCP_SOCK.listen()
+
+            conn, addr = self.TCP_SOCK.accept()
+
+            with conn:
+                data = conn.recv(1024)
+                if not data:
+                    break
+
+                payload = pickle.load(data)
+                
+                header, BF = payload
+
+                if header == "CBF":
+                    # TODO TASK 9
+                    pass
+                elif header == "QBF":
+                    # TODO TASK 10
+
 
             
