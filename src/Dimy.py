@@ -306,7 +306,7 @@ class Client:
 
                 print(resp)
 
-                if resp == "COVID CLOSE CONTACT":
+                if resp == "MATCH FOUND":
 
                     self.has_COVID = True
 
