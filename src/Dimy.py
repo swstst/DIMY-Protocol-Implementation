@@ -46,7 +46,9 @@ class Client:
         self.gen_qbf_stop = threading.Event()
 
         self.scheduler = BlockingScheduler()
-        self.scheduler.add_job(self._make_DBFs, "interval", seconds=t * 6 * 6, id='make_QBF')
+        self.scheduler.add_job(
+            self._make_DBFs, "interval", seconds=t * 6 * 6, id="make_QBF"
+        )
 
         self.curr_EphID = None
         self.curr_secret = None
@@ -245,7 +247,7 @@ class Client:
         """
         aggr_bloomFilter = bloomFilter(n=6, m=800_000)
         curr_DBF_list = self.DBF_list.get_curr_DBF_queue()
-            
+
         oldest_date = datetime.now()
         for dbf in curr_DBF_list:
             aggr_bloomFilter.merge_filter(dbf)
@@ -262,7 +264,6 @@ class Client:
         self.TCP_SOCK.sendall(pickled_cbf)
 
         resp = self.TCP_SOCK.recv(1024).decode()
-
 
         return resp
 
@@ -289,10 +290,10 @@ class Client:
 
                 resp = self._upload_cbf()
 
-                # TODO please check 
+                # TODO please check
                 if resp == "200":
-                    self.scheduler.remove_job('make_QBF')
-                
+                    self.scheduler.remove_job("make_QBF")
+
                 print(resp)
 
                 # stop generating QBF
