@@ -5,8 +5,9 @@ import random
 import time
 from queue import *
 from Crypto.Hash import SHA256
+from apscheduler.schedulers.blocking import BlockingScheduler
 
-from ID import *
+from ephID import ID
 
 from bloomFilter.NodeDBFList import NodeDBFList
 from bloomFilter.bloomFilter import bloomFilter
@@ -17,10 +18,16 @@ UDP_BROADCAST_ADDR = '127.0.0.1'
 class Client:
     def __init__(self, t:int, k:int, n:int, p:int):
 
-        self.id = random.randrange(1000,10_000)
+        self.CLIENT_ID = random.randrange(1000,10_000)
         
         self.UDP_RECV_PORT = 5000
         self.UDP_SEND_PORT = 5000
+
+        # UDP socket for shares broadcast
+        self.UDP_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        # TCP socket object to send CBF to server
+        self.TCP_SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         self.t = t     
         self.k = k
@@ -28,13 +35,13 @@ class Client:
         self.p = int(p)
 
         self.DBF_list = NodeDBFList(t, n, m)
+        self.CBF = bloomFilter(n=6, m=800_000)
+        self.QBF = bloomFilter(n=6, m=800_000)
 
         self.stop_event = threading.Event()
         self.secrets_ready_event = threading.Event()
         self.t_interval_event = threading.Event()
-        
-        # UDP socket for shares broadcast
-        self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.gen_qbf_stop = threading.Event()
 
         self.curr_EphID = None
         self.curr_secret = None
@@ -45,8 +52,11 @@ class Client:
 
         # shares received within 't'-seconds
         self.recv_shares = Queue()
-
+        
         self.EphIDs = Queue()
+
+        self.has_COVID = False
+        
 
 
     def gen_EphID_shares_every_t(self):
@@ -56,20 +66,20 @@ class Client:
         while not self.stop_event.is_set():
 
             # generate new EphID
-            self.curr_EphID, self.curr_secret = gen_EphID(self.t)
-            print("Client", self.id, ": New EphID generated")
+            self.curr_EphID, self.curr_secret = ID.gen_EphID(self.t)
+            print("Client", self.CLIENT_ID, ": New EphID generated")
             print(self.curr_EphID, end='\n\n')
 
             # generate new HashID based on EphID
             hash_EphID = bytearray(SHA256.new(data=self.curr_EphID.to_bytes(32, byteorder='big')).digest())[0:3]
             
             self.hashID_queue.put(hash_EphID)
-            print("Client:", self.id, "New HashID generated")
+            print("Client:", self.CLIENT_ID, "New HashID generated")
             print(hash_EphID, end='\n\n')
 
             # split new EphID into n shares
-            new_shares = gen_shares(new_EphID=self.curr_EphID, k=self.k, n=self.n) 
-            print("Client", self.id, ": New secret shares generated")
+            new_shares = ID.gen_shares(new_EphID=self.curr_EphID, k=self.k, n=self.n) 
+            print("Client", self.CLIENT_ID, ": New secret shares generated")
             for i, share in enumerate(new_shares):
                 print(i, ":", share[:5], "...")
                 
@@ -98,10 +108,10 @@ class Client:
             for share in shares:
                 msg = self.curr_HashID + share
 
-                print("Client:", self.id, "-" * 5, "SEND:", msg[:10], end='\n\n')
+                print("Client:", self.CLIENT_ID, "-" * 5, "SEND:", msg[:10], end='\n\n')
                 
                 # broadcast share over UDP
-                self.udp_sock.sendto(msg,(UDP_BROADCAST_ADDR, self.UDP_SEND_PORT))
+                self.UDP_SOCK.sendto(msg,(UDP_BROADCAST_ADDR, self.UDP_SEND_PORT))
                 
                 # wait 3 seconds before broadcasting new shares
                 time.sleep(3)
@@ -115,7 +125,7 @@ class Client:
         while not self.stop_event.is_set():
             
             # should be receiving 32 + 3 bytes at a time
-            data, addr = self.udp_sock.recvfrom(35)
+            data, addr = self.UDP_SOCK.recvfrom(35)
 
             if not data:
                 continue
@@ -130,13 +140,13 @@ class Client:
             p = random.randrange(0, 100)
                         
             if p < self.p:
-                print("Client:", self.id, "-" * 15, f"RECV: p = {p}, message dropped", end='\n\n')
+                print("Client:", self.CLIENT_ID, "-" * 15, f"RECV: p = {p}, message dropped", end='\n\n')
                 continue
             
             # store the data somewhere
             self.recv_shares.put([key, ephID])
             
-            print("Client:", self.id, "-" * 15, "RECV: got share", ephID, "...", end='\n\n')
+            print("Client:", self.CLIENT_ID, "-" * 15, "RECV: got share", ephID, "...", end='\n\n')
 
         return
 
@@ -145,11 +155,12 @@ class Client:
         Check if k-shares have been received for any clients given t seconds.
         """
         delay = self.t
+        elapsed_time = 0
         
         while not self.stop_event.is_set():
 
             # attempt to reconstruct received shares every t-interval
-            time.sleep(delay)
+            time.sleep(delay - elapsed_time)
 
             # make a copy of the received shares queue
             recv_shares_copy = self.recv_shares
@@ -181,7 +192,7 @@ class Client:
                     continue
 
                 # otherwise, reconstruct the shares
-                temp_ephID = combine_shares(ephID_shares)
+                temp_ephID = ID.combine_shares(ephID_shares)
 
                 ephID_hash = SHA256.new(temp_ephID).digest()[0:len(hash_id)]
 
@@ -192,15 +203,65 @@ class Client:
                 valid_ephID = temp_ephID
                     
                 # successful reconstruction of shares can proceed to generate EncID.
-                print("Client:", self.id, "-" * 15, "!! Successful reconstruction of EphID", valid_ephID, end='\n\n')
+                print("Client:", self.CLIENT_ID, "-" * 15, "!! Successful reconstruction of EphID", valid_ephID, end='\n\n')
 
                 self.EphIDs.put(valid_ephID)
                 
-                encID = ECDH(valid_ephID, self.curr_secret)
+                encID = ID.ECDH(valid_ephID, self.curr_secret)
                 
                 # put encID into bloom filter
                 curr_filter = self.DBF_list.curr_DBF()
                 curr_filter.add_element(encID)
+        
+
+    def gen_cbf(self):
+        """
+        Combines all available DBFs into a single bloom filter - CBF.
+        """
+        curr_DBF_list = self.DBF_list.get_curr_DBF_queue()
+
+        for dbf in curr_DBF_list:
+            self.CBF.add_element(dbf)
+
+        return True
+
+
+    def tcp_client(self):
+
+        while not self.stop_event.is_set():
+            
+            if self.has_COVID:
+                
+                self.gen_cbf()
+                
+                self.TCP_SOCK.sendall(self.CBF)
+
+                resp = self.TCP_SOCK.recv(1024).decode()
+
+                print(resp)
+                
+                # stop generating QBF
+                self.gen_qbf_stop.set()
+                
+                return
+
+            else:
+                self.TCP_SOCK.sendall(self.qbf)
+                
+                resp = self.TCP_SOCK.recv(1024).decode()
+
+                print(resp)
+
+                if resp == 'COVID CLOSE CONTACT':
+                    
+                    self.has_COVID = True
+                    
+                    continue
+
+        # close socket connection
+        self.TCP_SOCK.close()
+
+        return 
 
 
     def run(self):
@@ -214,24 +275,30 @@ class Client:
         """
         
         # enable address reuse
-        self.udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         try:
-            self.udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            self.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
             
         except AttributeError:
             pass         
     
         # start listening on receiving UDP port
-        self.udp_sock.bind((UDP_BROADCAST_ADDR, self.UDP_RECV_PORT))
-        
+        self.UDP_SOCK.bind((UDP_BROADCAST_ADDR, self.UDP_RECV_PORT))
+
+        # connect to server
+        self.TCP_SOCK.connect(('127.0.0.1', 55000))
+
+        # init threads
         udp_recv_thread = threading.Thread(target=self.receiver, daemon=False)
+        tcp_send_thread = threading.Thread(target=self.tcp_client, daemon=False)
         gen_EphID_shares_thread = threading.Thread(target=self.gen_EphID_shares_every_t, daemon=True)
         broadcast_thread = threading.Thread(target=self.broadcast_shares, daemon=False)
         reconstruct_ephID_thread = threading.Thread(target=self.reconstruct_shares, daemon=False)
 
         # start threads
         udp_recv_thread.start()
+        tcp_send_thread.start()
         gen_EphID_shares_thread.start()
         broadcast_thread.start()
         reconstruct_ephID_thread.start()
@@ -244,6 +311,7 @@ class Client:
                 self.stop_all_processes()
 
                 udp_recv_thread.join()
+                tcp_send_thread.join()
                 gen_EphID_shares_thread.join()
                 broadcast_thread.join()
                 reconstruct_ephID_thread.join()
