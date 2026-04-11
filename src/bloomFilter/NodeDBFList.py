@@ -1,8 +1,8 @@
 import threading
-from apscheduler.schedulers.blocking import BlockingScheduler
-from bloomFilter import bloomFilter
+# from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
+from bloomFilter import bloomFilter as bf
 from collections import deque
-
 
 class NodeDBFList:
     def __init__(self, t: int, n: int, m: int):
@@ -10,9 +10,9 @@ class NodeDBFList:
         self.n = n
         self.m = m
         self.DBFs = deque()
-        self.DBF_lock = threading.lock()
+        self.DBF_lock = threading.Lock()
 
-        self.scheduler = BlockingScheduler()
+        self.scheduler = BackgroundScheduler()
         self.scheduler.add_job(self._DBF_add, "interval", seconds=t * 6)
         self.scheduler.start()
 
@@ -20,10 +20,10 @@ class NodeDBFList:
 
     def _DBF_add(self):
         """
-        Adds a DBF to thelist
+        Adds a DBF to the list
         """
         with self.DBF_lock:
-            new_DBF = bloomFilter(self.n, self.m)
+            new_DBF = bf.bloomFilter(self.n, self.m)
             self.DBFs.appendleft(new_DBF)
 
             if (

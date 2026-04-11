@@ -1,0 +1,59 @@
+
+Client initialisation:
+[06:59:50] [LOCAL] [INIT] [client] | id=xxxxxx
+
+Server initialisation:
+[06:59:50] [LOCAL] [INIT] [server] | addr=xx; port=xx;
+
+Generate BF/EphID (for DBF, QBF, CBF):
+[06:59:50] [LOCAL] [CREATED] [client] | data=xxxxxx
+
+DBF exchange between clients:
+[07:18:22] [C->C] [RECV DBF]  [client_id] -> [client] | peer=Client id; dbf=xxxxxx; 
+[07:18:22] [C->C] [SEND DBF]  [client] -> [client_id] | peer=Client id; dbf=xxxxxx; status=success|failed
+
+BF send to server:
+[07:18:22] [C->S] [SEND_BF] [client] -> [server] | bf=xxxxxx; bf_type=qbf|cbf; status=success|failed
+
+Server response:
+[07:18:22] [S->C] [RECV_BF] [server] -> [client]    | id=client_id; bf_type=qbf|cbf
+
+Server responds with match close contact match:
+[07:18:22] [S->C] [MATCH] [server] -> [client] | close_contact=true|false
+
+Error handling:
+[07:19:00] [S->C] [ERROR]     [server] -> [client]    | msg=...
+[07:19:00] [C->S] [ERROR]     [client] -> [server]    | msg=...
+
+
+[time] [Local | C->C | S->C | C->S] [incoming|outgoing] 
+
+Self: 
+- server, 
+- client_id
+
+- time
+
+Actions
+done locally:
+      - [INIT] - client/server initialisation
+      - [CREATED] - dbf, qbf, cbf, EphID
+      - [UPDATE] - qbf, cbf
+
+not done locally:
+      send:
+      - [SEND] - dbf, qbf, cbf
+      - [MATCH]
+
+      recv:
+      - [RECV] - dbf, qbf, cbf
+      - [ACK]
+
+- [ERR]
+
+Direction:
+- [LOCAL]
+- receiving: [sender][self] = [Y->X]
+- sending: [self][sender] = [X->Y] 
+
+Data: {field1: d1, field2: d2, field3: d3, ... } -> | field1=d1; field2=d2; field3=d3; ... 

@@ -19,7 +19,7 @@ class bloomFilter:
         h2 = (h >> 64) | 1
 
         positions = []
-        for i in range(k):
+        for i in range(self.k):
             pos = (h1 + i * h2) % self.m
             positions.append(pos)
 
