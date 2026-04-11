@@ -2,6 +2,7 @@ import threading
 import select
 import socket, pickle
 from datetime import datetime
+from bitarray import bitarray
 
 from random import randint
 from collections import deque
@@ -38,11 +39,18 @@ class Server:
         Handles each client connection
         """   
         print('init new client')
+        
+        BUFF_SIZE = 1024
 
         try:
             while True:
-                data = client_socket.recv(1024)
-
+                data = bytearray()
+                while True:
+                    part = sock.recv(BUFF_SIZE)
+                    data.extend(part)
+                    if len(part) < BUFF_SIZE:
+                        break
+                
                 print(data)
 
                 if not data:

@@ -273,7 +273,8 @@ class Client:
         combined_BF.change_date(oldest_date)
         self.QBF = combined_BF
         
-        self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": self.QBF})
+        self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (combined_BF, oldest_date, combined_BF, self.QBF)})
+        return self.QBF
 
     def send(self, data, bf_type:str):
         # set up new TCP connection

@@ -6,12 +6,18 @@ from datetime import datetime
 
 class bloomFilter:
     def __init__(self, n: int, m: int):
-        self.filter = bitarray(m).setall(0)  # supposed to be 100kB
+        self.filter = bitarray(m)  # supposed to be 100kB
+        self.filter.setall(0)
+
         self.hash1 = mmh3.hash
         self.m = m  # Total number of bits, supposed to be 100kB
         self.n = n  # expected amount of elements to be input
         self.k = math.floor((m / n) * math.log(2))
         self.date = datetime.now()
+
+    def __repr__(self):
+        # This is what shows up when you print the object
+        return f"BloomFilter(m={self.m}, n={self.n})"
 
     def __filter_positions__(self, item):
         h = self.hash1(item)
