@@ -109,7 +109,6 @@ class Server:
                 
             except ConnectionResetError as e:
                 pass
-                
         
 
 if __name__ == '__main__':
