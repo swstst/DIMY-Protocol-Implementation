@@ -286,7 +286,7 @@ class Client:
         combined_BF.change_date(oldest_date)
         QBF = combined_BF
         
-        self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (combined_BF, oldest_date, combined_BF, self.QBF)})
+        self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (combined_BF, oldest_date, combined_BF, QBF)})
 
         return QBF
 
