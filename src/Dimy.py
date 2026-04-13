@@ -38,7 +38,7 @@ class Client:
         self.QBF = None
 
         self.stop_event = threading.Event()
-        
+         
         self.curr_EphID = None
         self.curr_secret = None
         self.curr_HashID = None
@@ -276,6 +276,7 @@ class Client:
         self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (combined_BF, oldest_date, combined_BF, self.QBF)})
         return self.QBF
 
+
     def send(self, data, bf_type:str):
         # set up new TCP connection
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -301,8 +302,8 @@ class Client:
 
     def upload_bf_to_server(self):
         
-        # in seconds
-        dt = 60
+        # in seconds (t * 6 * 6)
+        dt = self.t * 36
         # dt = self.t * 6 * 6
 
         # someone diagnosed positive with COVID-19 will be based 
@@ -315,6 +316,7 @@ class Client:
             
             resp = self.send(data=qbf, bf_type='QBF')
 
+            # TODO i dont think this is right
             if p < 3 or resp == 'MATCH FOUND':
                 cbf = self.make_cbf()
                 print(cbf)
@@ -384,6 +386,7 @@ if __name__ == "__main__":
 
     client.run()
 
+    threading.Event().wait()
     
     
     # client.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

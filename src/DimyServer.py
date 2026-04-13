@@ -46,12 +46,13 @@ class Server:
             while True:
                 data = bytearray()
                 while True:
-                    part = sock.recv(BUFF_SIZE)
+                    part = client_socket.recv(BUFF_SIZE)
                     data.extend(part)
                     if len(part) < BUFF_SIZE:
                         break
                 
-                print(data)
+                # this is really big dont print
+                #print(data)
 
                 if not data:
                     break
