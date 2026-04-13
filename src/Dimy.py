@@ -104,7 +104,8 @@ class Client:
                 start_timer = time.perf_counter()
                 
                 msg = self.curr_HashID + share
-                
+               
+                # TODO possibly need to have different ports for different instances
                 # broadcast share over UDP
                 self.UDP_SOCK.sendto(msg, (UDP_BROADCAST_ADDR, self.UDP_SEND_PORT))
                 
@@ -321,8 +322,11 @@ class Client:
              
             resp = self.send(data=qbf, bf_type='QBF')
 
+            if resp == "MATCH FOUND":
+
+
             # TODO i dont think this is right
-            if p < 3 or resp == 'MATCH FOUND':
+            if p < 3 and self.has_COVID:
                 cbf = self.make_cbf()
                 
                 resp = self.send(data=cbf, bf_type='CBF')
@@ -372,6 +376,8 @@ class Client:
         reconstruct_ephID_thread.start()
         upload_to_server_thread.start()
 
+        
+
 
     def stop_all_processes(self):
         self.stop_event.set()
@@ -381,6 +387,8 @@ if __name__ == "__main__":
     # graceful invalid input handling
     # try:
 
+
+
     print('starting client')
     client = Client(t=15, k=3, n=5, p=30)
 
@@ -388,11 +396,9 @@ if __name__ == "__main__":
     print()
     print()
 
-    client.run()
+    client.run() 
+    
 
-    threading.Event().wait()
-    
-    
     # client.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     # try:
