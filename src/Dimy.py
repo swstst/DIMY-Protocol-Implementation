@@ -20,8 +20,6 @@ from msgFormatter import msgFormatter as MessageFormatter
 
 # Keep logs in a queue.
 
-# UDP Configuration
-UDP_BROADCAST_ADDR = "127.0.0.1"
 class Client:
     def __init__(self, t: int, k: int, n: int, p: int):
 
@@ -30,9 +28,11 @@ class Client:
         self.UDP_RECV_PORT = 5000
         self.UDP_SEND_PORT = 5000
 
-        # UDP socket for shares broadcast
-        self.UDP_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
+        # UDP socket for receiving shares
+        self.UDP_RECV_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # UDP socket for broadcasting shares
+        self.UDP_SEND_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        
         self.t = t
         self.k = k
         self.n = n
@@ -81,7 +81,7 @@ class Client:
             # split new EphID into n shares
             new_shares = ID.gen_shares(new_EphID=self.curr_EphID, k=self.k, n=self.n)
                 
-            fshares = ', '.join(f"{share[:3].hex()}..." for share in new_shares[:self.n])
+            fshares = ', '.join(f"{share[:2].hex()}.." for share in new_shares[:self.n])
             self.log_msg.log_local(action="CREATED", data={'type': 'Secret Shares', 'data': f"[{fshares}]"})
 
             # store shares in broadcast queue
@@ -107,9 +107,9 @@ class Client:
                 msg = self.curr_HashID + share
                 
                 # broadcast share over UDP
-                self.UDP_SOCK.sendto(msg, (UDP_BROADCAST_ADDR, self.UDP_SEND_PORT))
+                self.UDP_SEND_SOCK.sendto(msg, ('255.255.255.255', self.UDP_SEND_PORT))
                 
-                self.log_msg.send(receiver="client", action="SEND SHARE", data={'share': f"{msg[:2].hex()}.."})
+                self.log_msg.send(receiver="client", action="SEND SHARE", data={'hash id': f"{msg[:3].hex()}..", 'share': f"{msg[3:6].hex()}.."})
 
                 delay = time.perf_counter() - start_timer 
 
@@ -124,7 +124,7 @@ class Client:
         while not self.stop_event.is_set():
 
             # should be receiving 32 + 3 bytes at a time
-            data, addr = self.UDP_SOCK.recvfrom(35)
+            data, addr = self.UDP_RECV_SOCK.recvfrom(35)
 
             if not data:
                 continue
@@ -143,7 +143,7 @@ class Client:
             # if p < self.p:
             #     continue
 
-            self.log_msg.recv(sender=f"client_{key.hex()}", data={'share': f"{ephID[:5].hex()}.."})
+            self.log_msg.recv(sender=f"client_{key.hex()}", data={'hash id': f"{key.hex()}", 'share': f"{ephID[:3].hex()}.."})
             
             # store data
             self.recv_shares.put([key, ephID])
@@ -277,7 +277,7 @@ class Client:
         combined_BF.change_date(oldest_date)
         qbf = combined_BF
         
-        self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (combined_BF, oldest_date, len(qbf.filter))})
+        self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (oldest_date.strftime("%H:%M:%S.%f")[:-3], len(qbf.filter))})
 
         return qbf
 
@@ -344,17 +344,19 @@ class Client:
 
         """
 
-        # enable address reuse
-        self.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
+        # enable address reuse for receiving socket
+        self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # set up broadcasting socket
+        self.UDP_SEND_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        
         try:
-            self.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-
+            self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         except AttributeError:
             pass
 
         # start listening on receiving UDP port
-        self.UDP_SOCK.bind((UDP_BROADCAST_ADDR, self.UDP_RECV_PORT))
+        self.UDP_RECV_SOCK.bind(('', self.UDP_RECV_PORT))
+        
         self.log_msg.log_local(action="INIT", data={'status': 'listening', 'port': self.UDP_SEND_PORT })
         
         # init threads
