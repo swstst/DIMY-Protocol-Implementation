@@ -39,26 +39,29 @@ class Server:
         Handles each client connection
         """   
         print('init new client')
+
+        # data sent by client will always be QBF/CBF = 100kB = 800_000b
+        TOTAL_SIZE = 800_000
+        # receive data 2000b at a time
+        BUFF_SIZE = 2000
         
-        BUFF_SIZE = 1024
+        recv_data_size = 0
 
         try:
-            while True:
+            while recv_data_size <= TOTAL_SIZE:
                 data = bytearray()
+                
                 while True:
-                    part = sock.recv(BUFF_SIZE)
+                    part = client_socket.recv(BUFF_SIZE)
                     data.extend(part)
+                    
                     if len(part) < BUFF_SIZE:
                         break
                 
-                print(data)
-
                 if not data:
                     break
 
                 header, bf = pickle.loads(data)
-
-                print(data)
 
                 match header:
                     case "CBF":
@@ -78,7 +81,7 @@ class Server:
                     case _:
                         client_socket.sendall("WRONG INPUT".encode())
 
-                self.format_msg.recv(sender="client", data={'type': header, 'data': bf})
+                self.format_msg.recv(sender="client", data={'type': header, 'data length': len(data)})
 
         except ConnectionResetError:
             print("Client disconnected abruptly")

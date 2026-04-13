@@ -16,6 +16,9 @@ from bloomFilter.bloomFilter import bloomFilter
 
 from msgFormatter import msgFormatter as MessageFormatter
 
+
+# Keep logs in a queue.
+
 # UDP Configuration
 UDP_BROADCAST_ADDR = "127.0.0.1"
 class Client:
@@ -65,7 +68,7 @@ class Client:
         
             # generate new EphID
             self.curr_EphID, self.curr_secret = ID.gen_EphID(self.t)
-            self.log_msg.log_local(action="CREATED", data={'type': 'EphID', 'data': f"{str(self.curr_EphID)[:5]}..."})
+            self.log_msg.log_local(action="CREATED", data={'type': 'EphID', 'data': f"{str(self.curr_EphID)[:5]}.."})
 
             # generate new HashID based on EphID
             hash_EphID = bytearray(
@@ -73,7 +76,7 @@ class Client:
             )[0:3]
 
             self.hashID_queue.put(hash_EphID)
-            self.log_msg.log_local(action="CREATED", data={'type': 'HashID', 'data': f"{hash_EphID[:].hex()}..."})
+            self.log_msg.log_local(action="CREATED", data={'type': 'HashID', 'data': f"{hash_EphID[:].hex()}.."})
 
             # split new EphID into n shares
             new_shares = ID.gen_shares(new_EphID=self.curr_EphID, k=self.k, n=self.n)
@@ -106,7 +109,7 @@ class Client:
                 # broadcast share over UDP
                 self.UDP_SOCK.sendto(msg, (UDP_BROADCAST_ADDR, self.UDP_SEND_PORT))
                 
-                self.log_msg.send(receiver="client", action="SEND DBF", data={'share': f"{msg[:5].hex()}..."})
+                self.log_msg.send(receiver="client", action="SEND SHARE", data={'share': f"{msg[:2].hex()}.."})
 
                 delay = time.perf_counter() - start_timer 
 
@@ -140,7 +143,7 @@ class Client:
             if p < self.p:
                 continue
 
-            self.log_msg.recv(sender=f"client_{key}", data={'share': ephID[:4].hex()})
+            self.log_msg.recv(sender=f"client_{key.hex()}", data={'share': f"{ephID[:4].hex()}.."})
             
             # store data
             self.recv_shares.put([key, ephID])
@@ -235,12 +238,12 @@ class Client:
                 valid_ephID = temp_ephID
 
                 # successful reconstruction of shares can proceed to generate EncID. 
-                self.log_msg.log_local(action="CREATED", data={'type': 'reconstructed EphID', 'data': valid_ephID[:5].hex()})
+                self.log_msg.log_local(action="CREATED", data={'type': 'reconstructed EphID', 'data': f"{valid_ephID[:4].hex()}.."})
                             
                 self.EphIDs.put(valid_ephID)
 
                 encID = ID.ECDH(valid_ephID, self.curr_secret)
-                self.log_msg.log_local(action="CREATED", data={'type': 'EncID', 'data': encID})
+                self.log_msg.log_local(action="CREATED", data={'type': 'EncID', 'data': f"{str(encID)[:4]}.."})
 
                 # put encID into bloom filter
                 curr_filter = self.DBF_list.curr_DBF()
@@ -252,6 +255,7 @@ class Client:
     def combine_DBFs(self):
         """
         Combines all available DBFs into a single bloom filter.
+
         """
         aggr_bloomFilter = bloomFilter(n=6, m=800_000)
         curr_DBF_list = self.DBF_list.get_curr_DBF_queue()
@@ -274,7 +278,6 @@ class Client:
         self.QBF = combined_BF
         
         self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (combined_BF, oldest_date, combined_BF, self.QBF)})
-        return self.QBF
 
     def send(self, data, bf_type:str):
         # set up new TCP connection
@@ -304,20 +307,22 @@ class Client:
         # in seconds
         dt = 60
         # dt = self.t * 6 * 6
-
-        # someone diagnosed positive with COVID-19 will be based 
-        p = random.randint(0, 1000)
         
         while not self.stop_event.is_set():
+            # someone diagnosed positive with COVID-19 will be based  
+            p = random.randint(0, 1000)
+            
             time.sleep(dt)
 
-            qbf = self.make_qbf()
+            # update QBF
+            self.make_qbf()
+            
+            qbf = self.QBF
             
             resp = self.send(data=qbf, bf_type='QBF')
 
             if p < 3 or resp == 'MATCH FOUND':
                 cbf = self.make_cbf()
-                print(cbf)
                 
                 resp = self.send(data=cbf, bf_type='CBF')
 
