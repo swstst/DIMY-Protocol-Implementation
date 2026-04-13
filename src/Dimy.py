@@ -4,6 +4,7 @@ import socket
 import pickle
 import random
 import time
+import logging
 from queue import *
 from Crypto.Hash import SHA256
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -133,16 +134,16 @@ class Client:
             key, ephID = d[0:3], d[3:]
 
             # if message is own share, drop it
-            if self.curr_HashID == key:
+            if key == self.curr_HashID:
                 continue
 
             # if probability < defined probability, drop message
-            p = random.randrange(0, 100)
+            # p = random.randrange(0, 100)
 
-            if p < self.p:
-                continue
+            # if p < self.p:
+            #     continue
 
-            self.log_msg.recv(sender=f"client_{key.hex()}", data={'share': f"{ephID[:4].hex()}.."})
+            self.log_msg.recv(sender=f"client_{key.hex()}", data={'share': f"{ephID[:5].hex()}.."})
             
             # store data
             self.recv_shares.put([key, ephID])
@@ -248,7 +249,7 @@ class Client:
                 curr_filter = self.DBF_list.curr_DBF()
                 curr_filter.add_element(encID)
 
-                self.log_msg.log_local(action="UPDATED", data={'msg': 'Added EncID to DBF', 'data': ''})
+                self.log_msg.log_local(action="UPDATED", data={'msg': 'Added EncID to DBF', 'data': len(self.DBF_list.curr_DBF())})
 
 
     def combine_DBFs(self):
@@ -274,12 +275,11 @@ class Client:
     def make_qbf(self):
         combined_BF, oldest_date = self.combine_DBFs()
         combined_BF.change_date(oldest_date)
-        QBF = combined_BF
+        qbf = combined_BF
         
-        self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (combined_BF, oldest_date, combined_BF, self.QBF)})
+        self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (combined_BF, oldest_date, len(qbf.filter))})
 
-        return QBF
-
+        return qbf
 
     def send(self, data, bf_type:str):
         # set up new TCP connection
@@ -307,32 +307,31 @@ class Client:
     def upload_bf_to_server(self):
         
         # in seconds (t * 6 * 6)
-        dt = self.t * 36
+        dt = self.t * 2
         # dt = self.t * 6 * 6
+
+        # sent qbf counter
+        p = 0
         
         while not self.stop_event.is_set():
-            # someone diagnosed positive with COVID-19 will be based  
-            p = random.randint(0, 1000)
             
             time.sleep(dt)
 
-            # update QBF
-            qbf = self.make_qbf()
-             
-            resp = self.send(data=qbf, bf_type='QBF')
-
-            # TODO i dont think this is right
-            if p < 3 or resp == 'MATCH FOUND':
+            if p == 10 and self.has_COVID:
                 cbf = self.make_cbf()
                 
                 resp = self.send(data=cbf, bf_type='CBF')
 
-                # keep sending if not successful
-                while resp != '200':
-                    resp = self.send(data=cbf, bf_type='CBF')
-                    
-                break
-                # close client
+            # get new QBF
+            qbf = self.make_qbf()
+             
+            resp = self.send(data=qbf, bf_type='QBF')
+
+            p += 1
+
+            if resp == 'MATCH FOUND':
+                self.log_msg.recv(sender="server", data={'msg': f"{resp} - is a close contact."})
+                # bonus: use some probability var to change self.has_COVID to true after receiving match.
                 
 
     def run(self):
@@ -364,6 +363,7 @@ class Client:
         gen_EphID_thread = threading.Thread(target=self.gen_EphID_shares, daemon=False)
         reconstruct_ephID_thread = threading.Thread(target=self.reconstruct_shares, daemon=False)
         upload_to_server_thread = threading.Thread(target=self.upload_bf_to_server, daemon=False)
+        print_log_thread = threading.Thread(target=self.log_msg.print_logs, daemon=False)
 
         # start threads
         udp_recv_thread.start()
@@ -371,16 +371,24 @@ class Client:
         gen_EphID_thread.start()
         reconstruct_ephID_thread.start()
         upload_to_server_thread.start()
-
+        print_log_thread.start()
 
     def stop_all_processes(self):
         self.stop_event.set()
 
 
 if __name__ == "__main__":
-    # graceful invalid input handling
-    # try:
+    logger = logging.getLogger(__name__)
 
+    # # comment out for now
+    # # graceful invalid input handling
+    # t, k, n, p = sys.argv[1:5]
+
+    # assert (int(t) in {15,18,21,24,27,30}), logger.error(msg="Invalid value 't' must be one of {15, 18, 21, 24, 27, 30}")
+    # assert (int(k) >= 3 and int(k) <= int(n)), logger.error(msg="Invalid value 'k' must be >= 3 and < 'n'")
+    # assert (int(n) >= 5), logger.error(msg="Invalid value 'n' must be >= 5")
+    # assert (int(p) in {30, 40, 50, 60, 70}), logger.error(msg="Invalid value 'p' must be one of {30, 40, 50, 60, 70}")
+    
     print('starting client')
     client = Client(t=15, k=3, n=5, p=30)
 
@@ -392,71 +400,3 @@ if __name__ == "__main__":
 
     threading.Event().wait()
     
-    
-    # client.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-    # try:
-    #     client.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    # except AttributeError:
-    #     pass
-
-    # # start listening on receiving UDP port
-    # client.UDP_SOCK.bind((UDP_BROADCAST_ADDR, client.UDP_RECV_PORT))
-    
-    # client.log_msg.log_local(action="INIT", data={'UDP port': client.UDP_RECV_PORT, 'TCP port': '55000'})
-
-    # # init threads
-    # udp_recv_thread = threading.Thread(target=client.udp_receiver, daemon=False)
-    # reconstruct_ephID_thread = threading.Thread(target=client.reconstruct_shares, daemon=False)
-
-    # # start threads
-    # udp_recv_thread.start()
-    # reconstruct_ephID_thread.start()
-
-    # client.scheduler.add_job(func=client.gen_EphID_shares, trigger='interval', seconds=client.t, coalesce=True, max_instances=50)
-    
-    # # broadcast shares over UDP every 3 seconds
-    # client.scheduler.add_job(func=client.broadcast_shares, trigger='interval', seconds=3, coalesce=True, max_instances=50)
-    
-    # # reconstruct ephIDs once k-shares have been received
-    # client.scheduler.start()
-
-    # while True:
-    #     time.sleep(0.01)
-    
-    
-
-    # # Unpack arguments
-    # t, k, n, p = sys.argv[1:5]
-    
-    # # Convert to integers
-    # t, k, n, p = int(t), int(k), int(n), int(p)
-    
-    # # Create client class
-    # client = Client(t=t, k=k, n=n, p=p)
-
-    # except ValueError as ve:
-    #     # Handle invalid integer conversion
-    #     for name, value in zip(["t", "k", "n", "p"], sys.argv[1:5]):
-    #         if not value.isdigit():
-    #             print(f"[!] Invalid value for '{name}': integer required")
-
-    #         # match (name):
-    #         #     case 't':
-    #         #         if not t in {15,18,21,24,27,30}: print("[!] Invalid value: 't' must be {15, 18, 21, 24, 27, 30}")
-
-    #         #     case 'k':
-    #         #         if not (k >= 3): print("[!] Invalid value: 'k' must be >= 3")
-
-    #         #     case 'n':
-    #         #          if not (n >= 5): print("[!] Invalid value: 'n' must be >= 5")
-
-    #         #     case 'p':
-    #         #         if not p in {30, 40, 50, 60, 70}: print("[!] Invalid value: 'p' must be {30, 40, 50, 60, 70}")
-
-    #     sys.exit(1)
-
-    # except Exception as e:
-    #     # Handle wrong number of arguments or other errors
-    #     print("[!] Invalid number of arguments passed: Require 'python client.py <time> <k-value> <n-value> <probability>'.")
-    #     sys.exit(1)

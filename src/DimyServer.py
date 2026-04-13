@@ -93,11 +93,12 @@ class Server:
     def start(self):
         self.TCP_SOCK.bind((self.ADDR, self.PORT))
 
-        # listens for up to at most 5 connections
         self.TCP_SOCK.listen()
 
         # pretty print
         self.format_msg.log_local(action="INIT", data={'addr': self.ADDR, 'port': self.PORT})
+        print_log_thread = threading.Thread(target=self.format_msg.print_logs, daemon=False)
+        print_log_thread.start()
 
         while True:
             try:

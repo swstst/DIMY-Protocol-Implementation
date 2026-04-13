@@ -1,17 +1,19 @@
 from datetime import datetime
-
+import queue
 class MessageFormatter:
       def __init__(self, origin:str):
             self.origin = origin
-
+            self.log_q = queue.Queue()
+            
       def log_local(self, action:str, data) -> None:            
             time = datetime.now().strftime("%H:%M:%S")
             fdata = '; '.join(f"{k} = {v}" for k, v in data.items())
 
             log = "{:<8} [{:<5}] [{:^10}] {:<10}".format(time, 'LOCAL', action, self.origin)
 
-            print("{:<60} |".format(log), fdata)
+            s =("{:<60} |".format(log), fdata)
 
+            self.log_q.put(s)
 
       def log_conn(self, receiver: str, data) -> None:
             time = datetime.now().strftime("%H:%M:%S")
@@ -19,7 +21,9 @@ class MessageFormatter:
 
             log = "{:<8} [S-->C] [{:^10}] {:<10} -> {:<10}".format((time, 'SERVER', self.origin, receiver))
 
-            print("{:<60} |".format(log), fdata)
+            s =("{:<60} |".format(log), fdata)
+
+            self.log_q.put(s)
 
       def send(self, receiver:str, action:str, data) -> None:
             time = datetime.now().strftime("%H:%M:%S")
@@ -30,11 +34,10 @@ class MessageFormatter:
 
             log = "{:<8} [{:<5}] [{:^10}] {:<10} -> {:<10}".format(time, f"{x}-->{y}", action, self.origin, receiver)
 
-            print("{:<60} |".format(log), fdata)
+            s =("{:<60} |".format(log), fdata)
 
+            self.log_q.put(s)
             
-                        
-
       def recv(self, sender:str, data) -> None:                        
             time = datetime.now().strftime("%H:%M:%S")
             fdata = '; '.join(f"{k} = {v}" for k, v in data.items())
@@ -44,7 +47,11 @@ class MessageFormatter:
 
             log = "{:<8} [{:<5}] [{:^10}] {:<10} -> {:<10}".format(time, f"{x}-->{y}", 'RECV', sender, self.origin)
 
-            print("{:<60} |".format(log), fdata)
+            s = ("{:<60} |".format(log), fdata)
 
+            self.log_q.put(s)
 
-            
+      def print_logs(self):
+            while True:
+                  msg = self.log_q.get()
+                  print(*msg)
