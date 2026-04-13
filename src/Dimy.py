@@ -38,7 +38,6 @@ class Client:
         self.p = int(p)
 
         self.DBF_list = NodeDBFList(t, n, m=800_000)
-        self.QBF = None
 
         self.stop_event = threading.Event()
          
@@ -275,9 +274,11 @@ class Client:
     def make_qbf(self):
         combined_BF, oldest_date = self.combine_DBFs()
         combined_BF.change_date(oldest_date)
-        self.QBF = combined_BF
+        QBF = combined_BF
         
         self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (combined_BF, oldest_date, combined_BF, self.QBF)})
+
+        return QBF
 
 
     def send(self, data, bf_type:str):
@@ -316,10 +317,8 @@ class Client:
             time.sleep(dt)
 
             # update QBF
-            self.make_qbf()
-            
-            qbf = self.QBF
-            
+            qbf = self.make_qbf()
+             
             resp = self.send(data=qbf, bf_type='QBF')
 
             # TODO i dont think this is right
