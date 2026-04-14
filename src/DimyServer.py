@@ -1,10 +1,8 @@
 import threading
-import select
 import socket, pickle
-from datetime import datetime
-from bitarray import bitarray
-
-from random import randint
+# from datetime import datetime
+# from bitarray import bitarray
+# from random import randint
 from collections import deque
 
 from msgFormatter import msgFormatter as MessageFormatter
@@ -22,15 +20,32 @@ class Server:
         
 
     def _QBF_matching(self, QBF) -> bool:
-        for cbf in self.CBFs:
+        # prevent race condition
+        cbfs = self.CBFs.copy()
 
-            if QBF.date > cbf.date:
+        print(len(cbfs))
+
+        if not len(cbfs):
+            return False 
+
+        qbf_oldest_date, qbf_newest_date = QBF.date_range
+        
+        for cbf in cbfs:
+            cbf_oldest_date, cbf_newest_date = cbf.date_range
+            
+            # if QBF creation time is before CBF upload, then ignore
+            if qbf_newest_date < cbf_oldest_date or qbf_oldest_date > cbf_newest_date:
+                print("QBF", QBF.date.strftime("%H:%M:%S.%f")[:-4], "CBF", f"[{cbf_oldest_date.strftime("%H:%M:%S.%f")[:-4]} - {cbf_newest_date.strftime("%H:%M:%S.%f")[:-4]}]" )
+                break
+            
+            matching = QBF.filter ^ cbf.filter 
+
+            if matching.all():
                 return False
-
-            matching = QBF.filter & cbf.filter
-
-            if matching.count(1) >= QBF.k:
+            elif matching.count(1) >= QBF.k:
+                print(matching.count(1), QBF.k)
                 return True
+
         return False
 
 
@@ -38,48 +53,56 @@ class Server:
         """
         Handles each client connection
         """   
-        print('init new client')
         self.format_msg.log_local(action="INIT", data={'msg': "new Client Connected"})
 
         # data sent by client will always be QBF/CBF = 100kB = 800_000b
         TOTAL_SIZE = 800_000
         # receive data 2000b at a time
-        BUFF_SIZE = 2000
+        BUFF_SIZE = 4096
         
-        recv_data_size = 0
+        data = b''
 
-        try:
-            while recv_data_size <= TOTAL_SIZE:
-                data = bytearray()
-                
-                while True:
-                    part = client_socket.recv(BUFF_SIZE)
-                    data.extend(part)
+        try:            
+            # read data in chunks
+            while len(data) <= TOTAL_SIZE:
+                chunk = client_socket.recv(BUFF_SIZE)
+
+                data += chunk
                     
-                    if len(part) < BUFF_SIZE:
-                        break
-                
-                if not data:
+                if len(chunk) < BUFF_SIZE:
                     break
 
-                header, bf = pickle.loads(data)
+            header, bf = pickle.loads(data)
 
-                if header == "CBF":
-                    self.CBFs.appendleft(bf)
-                    client_socket.sendall('200'.encode())
+            header = header.decode()
 
-                elif header == "QBF":
-                    match = self._QBF_matching(QBF=bf)
-                    if match:
-                        client_socket.sendall("MATCH FOUND".encode())
-                    else:
-                        client_socket.sendall("NO MATCH".encode())
+            self.format_msg.recv(sender="client", data={'type': header, 'data length': len(data)})
 
+            if header == "CBF":
+                self.CBFs.appendleft(bf)
+                
+                client_socket.sendall("200".encode())
+
+                self.format_msg.send(receiver="client", action="RESPONSE", data={'status': '200'})
+
+            elif header == "QBF":
+                match = self._QBF_matching(QBF=bf)
+                
+                if match:
+                    client_socket.sendall("MATCH FOUND".encode())
+                    
+                    self.format_msg.send(receiver="client", action="RESPONSE", data={'msg': 'MATCH FOUND'})
+                    
                 else:
-                    client_socket.sendall("WRONG INPUT".encode())
+                    client_socket.sendall("NO MATCH".encode())
+                    
+                    self.format_msg.send(receiver="client", action="RESPONSE", data={'msg': 'NO MATCH'})
 
-                self.format_msg.recv(sender="client", data={'type': header, 'data length': len(data)})
-
+            else:
+                client_socket.sendall("WRONG INPUT".encode())
+                
+                self.format_msg.send(receiver="client", action="RESPONSE", data={'msg': 'WRONG INPUT'})
+                
         except ConnectionResetError:
             print("Client disconnected abruptly")
 
