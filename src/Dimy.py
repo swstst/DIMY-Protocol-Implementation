@@ -67,8 +67,8 @@ class Client:
             start_timer = time.perf_counter()
         
             # generate new EphID
-            self.curr_EphID, self.curr_secret = ID.gen_EphID(self.t)
-            self.log_msg.log_local(action="CREATED", data={'type': 'EphID', 'data': f"{str(self.curr_EphID)[:5]}.."})
+            self.curr_EphID, self.curr_secret = ID.gen_EphID()
+            self.log_msg.log_local(action="CREATED", data={'type': 'EphID', 'data': f"{self.curr_EphID.to_bytes(32, byteorder='big')}.."})
 
             # generate new HashID based on EphID
             hash_EphID = bytearray(
@@ -125,7 +125,8 @@ class Client:
         while not self.stop_event.is_set():
 
             # should be receiving 32 + 3 bytes at a time
-            data, addr = self.UDP_RECV_SOCK.recvfrom(35)
+            
+            data, addr = self.UDP_RECV_SOCK.recvfrom(37)
 
             if not data:
                 continue
@@ -166,6 +167,9 @@ class Client:
         else:
             self.share_ids_counter[key.hex()] += 1
 
+        self.log_msg.recv(sender=f"client_{key.hex()}", data={'share_num': self.share_ids_counter[key.hex()]})
+
+
 
     def clear_share_ids_count_cache(self) -> None:
         """
@@ -190,6 +194,7 @@ class Client:
         """
         Check if k-shares have been received for any clients given t seconds.
         """
+        print("RECONSTRUCTING")
         delay = self.t
         elapsed_time = 0
 
@@ -227,28 +232,33 @@ class Client:
                 if len(ephID_shares) < self.k:
                     continue
 
-                # otherwise, reconstruct the shares
-                temp_ephID = ID.combine_shares(ephID_shares)
+                try:
+                    # otherwise, reconstruct the shares
+                    temp_ephID = ID.combine_shares(ephID_shares, self.k)
+                except ValueError as e:
+                    self.log_msg.log_local(action="FAIL", data={'type': e})
+                    continue
 
                 ephID_hash = SHA256.new(temp_ephID).digest()[0 : len(hash_id)]
 
                 # verify reconstructed shares
                 if ephID_hash != hash_id:
+                    self.log_msg.log_local(action="INVALID", data={'type': f'client {ephID_hash.hex()}', 'data': f"{ephID_shares}, {temp_ephID}"})    
                     continue
 
                 valid_ephID = temp_ephID
 
                 # successful reconstruction of shares can proceed to generate EncID. 
-                self.log_msg.log_local(action="CREATED", data={'type': 'reconstructed EphID', 'data': f"{valid_ephID[:4].hex()}.."})
+                self.log_msg.log_local(action="RECREATED", data={'type': 'reconstructed EphID', 'data': f"{valid_ephID[:4].hex()}.."})
                             
                 self.EphIDs.put(valid_ephID)
 
-                encID = ID.ECDH(valid_ephID, self.curr_secret)
+                encID = int(ID.ECDH(valid_ephID, self.curr_secret))
                 self.log_msg.log_local(action="CREATED", data={'type': 'EncID', 'data': f"{str(encID)[:4]}.."})
 
                 # put encID into bloom filter
                 curr_filter = self.DBF_list.curr_DBF()
-                curr_filter.add_element(encID)
+                curr_filter.add_element(encID.to_bytes(32, byteorder='big'))
 
                 self.log_msg.log_local(action="UPDATED", data={'msg': 'Added EncID to DBF', 'data': len(self.DBF_list.curr_DBF())})
 
@@ -400,7 +410,9 @@ if __name__ == "__main__":
     print()
     print()
 
-    client.run() 
+    client.run()
+
+    threading.Event().wait()
     
 
     threading.Event().wait()
