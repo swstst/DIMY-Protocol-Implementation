@@ -105,7 +105,8 @@ class Client:
                 start_timer = time.perf_counter()
                 
                 msg = self.curr_HashID + share
-                
+               
+                # TODO possibly need to have different ports for different instances
                 # broadcast share over UDP
                 self.UDP_SEND_SOCK.sendto(msg, ('255.255.255.255', self.UDP_SEND_PORT))
                 
@@ -375,6 +376,7 @@ class Client:
         upload_to_server_thread.start()
         print_log_thread.start()
 
+
     def stop_all_processes(self):
         self.stop_event.set()
 
@@ -398,7 +400,75 @@ if __name__ == "__main__":
     print()
     print()
 
-    client.run()
+    client.run() 
+    
 
     threading.Event().wait()
     
+    # client.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    # try:
+    #     client.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    # except AttributeError:
+    #     pass
+
+    # # start listening on receiving UDP port
+    # client.UDP_SOCK.bind((UDP_BROADCAST_ADDR, client.UDP_RECV_PORT))
+    
+    # client.log_msg.log_local(action="INIT", data={'UDP port': client.UDP_RECV_PORT, 'TCP port': '55000'})
+
+    # # init threads
+    # udp_recv_thread = threading.Thread(target=client.udp_receiver, daemon=False)
+    # reconstruct_ephID_thread = threading.Thread(target=client.reconstruct_shares, daemon=False)
+
+    # # start threads
+    # udp_recv_thread.start()
+    # reconstruct_ephID_thread.start()
+
+    # client.scheduler.add_job(func=client.gen_EphID_shares, trigger='interval', seconds=client.t, coalesce=True, max_instances=50)
+    
+    # # broadcast shares over UDP every 3 seconds
+    # client.scheduler.add_job(func=client.broadcast_shares, trigger='interval', seconds=3, coalesce=True, max_instances=50)
+    
+    # # reconstruct ephIDs once k-shares have been received
+    # client.scheduler.start()
+
+    # while True:
+    #     time.sleep(0.01)
+    
+    
+
+    # # Unpack arguments
+    # t, k, n, p = sys.argv[1:5]
+    
+    # # Convert to integers
+    # t, k, n, p = int(t), int(k), int(n), int(p)
+    
+    # # Create client class
+    # client = Client(t=t, k=k, n=n, p=p)
+
+    # except ValueError as ve:
+    #     # Handle invalid integer conversion
+    #     for name, value in zip(["t", "k", "n", "p"], sys.argv[1:5]):
+    #         if not value.isdigit():
+    #             print(f"[!] Invalid value for '{name}': integer required")
+
+    #         # match (name):
+    #         #     case 't':
+    #         #         if not t in {15,18,21,24,27,30}: print("[!] Invalid value: 't' must be {15, 18, 21, 24, 27, 30}")
+
+    #         #     case 'k':
+    #         #         if not (k >= 3): print("[!] Invalid value: 'k' must be >= 3")
+
+    #         #     case 'n':
+    #         #          if not (n >= 5): print("[!] Invalid value: 'n' must be >= 5")
+
+    #         #     case 'p':
+    #         #         if not p in {30, 40, 50, 60, 70}: print("[!] Invalid value: 'p' must be {30, 40, 50, 60, 70}")
+
+    #     sys.exit(1)
+
+    # except Exception as e:
+    #     # Handle wrong number of arguments or other errors
+    #     print("[!] Invalid number of arguments passed: Require 'python client.py <time> <k-value> <n-value> <probability>'.")
+    #     sys.exit(1)
