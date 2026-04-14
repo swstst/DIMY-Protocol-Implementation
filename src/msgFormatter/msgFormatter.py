@@ -11,7 +11,7 @@ class MessageFormatter:
 
             log = "{:<12} [{:<5}] [{:^10}] {:<10}".format(time, 'LOCAL', action, self.origin)
 
-            s =("{:<60} |".format(log), fdata)
+            s =("{:<68} |".format(log), fdata)
 
             self.log_q.put(s)
 
@@ -21,7 +21,7 @@ class MessageFormatter:
 
             log = "{:<12} [S-->C] [{:^10}] {:<10} -> {:<10}".format((time, 'SERVER', self.origin, receiver))
 
-            s =("{:<60} |".format(log), fdata)
+            s =("{:<68} |".format(log), fdata)
 
             self.log_q.put(s)
 
@@ -34,7 +34,7 @@ class MessageFormatter:
 
             log = "{:<12} [{:<5}] [{:^10}] {:<10} -> {:<10}".format(time, f"{x}-->{y}", action, self.origin, receiver)
 
-            s =("{:<60} |".format(log), fdata)
+            s =("{:<68} |".format(log), fdata)
 
             self.log_q.put(s)
             
@@ -47,7 +47,7 @@ class MessageFormatter:
 
             log = "{:<12} [{:<5}] [{:^10}] {:<10} -> {:<10}".format(time, f"{x}-->{y}", 'RECV', sender, self.origin)
 
-            s = ("{:<60} |".format(log), fdata)
+            s = ("{:<68} |".format(log), fdata)
 
             self.log_q.put(s)
 

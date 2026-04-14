@@ -18,8 +18,6 @@ from bloomFilter.bloomFilter import bloomFilter
 from msgFormatter import msgFormatter as MessageFormatter
 
 
-# Keep logs in a queue.
-
 class Client:
     def __init__(self, t: int, k: int, n: int, p: int):
 
@@ -139,10 +137,9 @@ class Client:
                 continue
 
             # if probability < defined probability, drop message
-            # p = random.randrange(0, 100)
-
-            # if p < self.p:
-            #     continue
+            p = random.randrange(0, 100)
+            if p < self.p:
+                continue
 
             self.log_msg.recv(sender=f"client_{key.hex()}", data={'hash id': f"{key.hex()}", 'share': f"{ephID[:3].hex()}.."})
             
@@ -317,8 +314,7 @@ class Client:
     def upload_bf_to_server(self):
         
         # in seconds (t * 6 * 6)
-        dt = self.t * 2
-        # dt = self.t * 6 * 6
+        dt = self.t * 6 # temp 
 
         # sent qbf counter
         p = 0
