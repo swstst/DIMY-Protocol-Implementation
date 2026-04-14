@@ -39,6 +39,7 @@ class Server:
         Handles each client connection
         """   
         print('init new client')
+        self.format_msg.log_local(action="INIT", data={'msg': "new Client Connected"})
 
         # data sent by client will always be QBF/CBF = 100kB = 800_000b
         TOTAL_SIZE = 800_000
@@ -63,23 +64,19 @@ class Server:
 
                 header, bf = pickle.loads(data)
 
-                match header:
-                    case "CBF":
-                        self.CBFs.appendleft(bf)
-                        client_socket.sendall('200'.encode())
-                        break
+                if header == "CBF":
+                    self.CBFs.appendleft(bf)
+                    client_socket.sendall('200'.encode())
 
-                    case "QBF":
-                        match = self._QBF_matching(QBF=bf)
-                        if match:
-                            client_socket.sendall("MATCH FOUND".encode())
-                        else:
-                            client_socket.sendall("NO MATCH".encode())
+                elif header == "QBF":
+                    match = self._QBF_matching(QBF=bf)
+                    if match:
+                        client_socket.sendall("MATCH FOUND".encode())
+                    else:
+                        client_socket.sendall("NO MATCH".encode())
 
-                        break
-
-                    case _:
-                        client_socket.sendall("WRONG INPUT".encode())
+                else:
+                    client_socket.sendall("WRONG INPUT".encode())
 
                 self.format_msg.recv(sender="client", data={'type': header, 'data length': len(data)})
 
