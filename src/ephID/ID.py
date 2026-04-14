@@ -20,7 +20,7 @@ def gen_keyPair(d: int):
     return keyPair
 
 
-def gen_EphID(t: int):
+def gen_EphID():
     """
     Generate Ephemeral IDs
 
@@ -59,7 +59,7 @@ def gen_shares(new_EphID, k: int, n: int) -> tuple:
     return shares
 
 
-def combine_shares(shares: list) -> bytearray:
+def combine_shares(shares: list, k: int) -> bytearray:
     """
     Reconstruct secret from k shares
 
@@ -71,16 +71,13 @@ def combine_shares(shares: list) -> bytearray:
     return:
         the shares back, the shares are in form (idx, share)
     """
-
-    try:
-        recovered = combine(shares, 1)
-        
-        return recovered
-        
-    except Exception as e:
-        print(e)
-        print(f"{shares}")
-
+    sanitized_shares = list(set(bytes(s) for s in shares))
+    if len(sanitized_shares) < k:
+        raise ValueError("less than k shares after sanitization")
+    
+    recovered = combine(sanitized_shares)
+    return recovered
+    
 
 
 def ECDH(pk, sk):
@@ -100,7 +97,7 @@ def ECDH(pk, sk):
     # FIPS constant
     b = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
 
-    x = int(pk)
+    x = int.from_bytes(pk, byteorder='big')
     y_squared = (x**3 - 3 * x + b) % p  # p256 curve equation
 
     # Tonelli-Shanks Algorithm to get Mod roots
@@ -115,4 +112,4 @@ def ECDH(pk, sk):
 
     sharedSecret = pub_key * sk
 
-    return sharedSecret
+    return sharedSecret.x

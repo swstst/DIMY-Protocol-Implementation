@@ -9,7 +9,7 @@ class NodeDBFList:
         self.t = t
         self.n = n
         self.m = m
-        self.DBFs = deque()
+        self.DBFs = deque([bf.bloomFilter(self.n, self.m)])
         self.DBF_lock = threading.Lock()
 
         self.scheduler = BackgroundScheduler()
@@ -33,6 +33,7 @@ class NodeDBFList:
 
     def curr_DBF(self):
         with self.DBF_lock:
+
             return self.DBFs[0]
 
     def get_curr_DBF_queue(self):

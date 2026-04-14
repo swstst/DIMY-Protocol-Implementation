@@ -65,8 +65,8 @@ class Client:
             start_timer = time.perf_counter()
         
             # generate new EphID
-            self.curr_EphID, self.curr_secret = ID.gen_EphID(self.t)
-            self.log_msg.log_local(action="CREATED", data={'type': 'EphID', 'data': f"{str(self.curr_EphID)[:5]}.."})
+            self.curr_EphID, self.curr_secret = ID.gen_EphID()
+            self.log_msg.log_local(action="CREATED", data={'type': 'EphID', 'data': f"{self.curr_EphID.to_bytes(32, byteorder='big')}.."})
 
             # generate new HashID based on EphID
             hash_EphID = bytearray(
@@ -103,7 +103,8 @@ class Client:
                 start_timer = time.perf_counter()
                 
                 msg = self.curr_HashID + share
-                
+               
+                # TODO possibly need to have different ports for different instances
                 # broadcast share over UDP
                 self.UDP_SEND_SOCK.sendto(msg, ('255.255.255.255', self.UDP_SEND_PORT))
                 
@@ -122,7 +123,7 @@ class Client:
         while not self.stop_event.is_set():
 
             # should be receiving 32 + 3 bytes at a time
-            data, addr = self.UDP_RECV_SOCK.recvfrom(35)
+            data, addr = self.UDP_RECV_SOCK.recvfrom(37)
 
             if not data:
                 continue
@@ -162,6 +163,9 @@ class Client:
         else:
             self.share_ids_counter[key.hex()] += 1
 
+        self.log_msg.recv(sender=f"client_{key.hex()}", data={'share_num': self.share_ids_counter[key.hex()]})
+
+
 
     def clear_share_ids_count_cache(self) -> None:
         """
@@ -186,6 +190,7 @@ class Client:
         """
         Check if k-shares have been received for any clients given t seconds.
         """
+        print("RECONSTRUCTING")
         delay = self.t
         elapsed_time = 0
 
@@ -223,30 +228,35 @@ class Client:
                 if len(ephID_shares) < self.k:
                     continue
 
-                # otherwise, reconstruct the shares
-                temp_ephID = ID.combine_shares(ephID_shares)
+                try:
+                    # otherwise, reconstruct the shares
+                    temp_ephID = ID.combine_shares(ephID_shares, self.k)
+                except ValueError as e:
+                    self.log_msg.log_local(action="FAIL", data={'type': e})
+                    continue
 
                 ephID_hash = SHA256.new(temp_ephID).digest()[0 : len(hash_id)]
 
                 # verify reconstructed shares
                 if ephID_hash != hash_id:
+                    self.log_msg.log_local(action="INVALID", data={'type': f'client {ephID_hash.hex()}', 'data': f"{ephID_shares}, {temp_ephID}"})    
                     continue
 
                 valid_ephID = temp_ephID
 
                 # successful reconstruction of shares can proceed to generate EncID. 
-                self.log_msg.log_local(action="CREATED", data={'type': 'reconstructed EphID', 'data': f"{valid_ephID[:4].hex()}.."})
+                self.log_msg.log_local(action="RECREATED", data={'type': 'reconstructed EphID', 'data': f"{valid_ephID[:4].hex()}.."})
                             
                 self.EphIDs.put(valid_ephID)
 
-                encID = ID.ECDH(valid_ephID, self.curr_secret)
+                encID = int(ID.ECDH(valid_ephID, self.curr_secret))
                 self.log_msg.log_local(action="CREATED", data={'type': 'EncID', 'data': f"{str(encID)[:4]}.."})
 
                 # put encID into bloom filter
                 curr_filter = self.DBF_list.curr_DBF()
-                curr_filter.add_element(encID)
+                curr_filter.add_element(encID.to_bytes(32, byteorder='big'))
 
-                self.log_msg.log_local(action="UPDATED", data={'msg': 'Added EncID to DBF', 'data': len(self.DBF_list.curr_DBF())})
+                self.log_msg.log_local(action="UPDATED", data={'msg': 'Added EncID to DBF', 'data': ''})
 
 
     def combine_DBFs(self):
@@ -339,14 +349,14 @@ class Client:
         broadcast_thread will start once self.shares_queue is not empty
 
         """
-
         # enable address reuse for receiving socket
         self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # set up broadcasting socket
         self.UDP_SEND_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        
+    
         try:
             self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+
         except AttributeError:
             pass
 
@@ -370,6 +380,7 @@ class Client:
         reconstruct_ephID_thread.start()
         upload_to_server_thread.start()
         print_log_thread.start()
+
 
     def stop_all_processes(self):
         self.stop_event.set()
@@ -398,3 +409,73 @@ if __name__ == "__main__":
 
     threading.Event().wait()
     
+
+    threading.Event().wait()
+    
+    # client.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    # try:
+    #     client.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    # except AttributeError:
+    #     pass
+
+    # # start listening on receiving UDP port
+    # client.UDP_SOCK.bind((UDP_BROADCAST_ADDR, client.UDP_RECV_PORT))
+    
+    # client.log_msg.log_local(action="INIT", data={'UDP port': client.UDP_RECV_PORT, 'TCP port': '55000'})
+
+    # # init threads
+    # udp_recv_thread = threading.Thread(target=client.udp_receiver, daemon=False)
+    # reconstruct_ephID_thread = threading.Thread(target=client.reconstruct_shares, daemon=False)
+
+    # # start threads
+    # udp_recv_thread.start()
+    # reconstruct_ephID_thread.start()
+
+    # client.scheduler.add_job(func=client.gen_EphID_shares, trigger='interval', seconds=client.t, coalesce=True, max_instances=50)
+    
+    # # broadcast shares over UDP every 3 seconds
+    # client.scheduler.add_job(func=client.broadcast_shares, trigger='interval', seconds=3, coalesce=True, max_instances=50)
+    
+    # # reconstruct ephIDs once k-shares have been received
+    # client.scheduler.start()
+
+    # while True:
+    #     time.sleep(0.01)
+    
+    
+
+    # # Unpack arguments
+    # t, k, n, p = sys.argv[1:5]
+    
+    # # Convert to integers
+    # t, k, n, p = int(t), int(k), int(n), int(p)
+    
+    # # Create client class
+    # client = Client(t=t, k=k, n=n, p=p)
+
+    # except ValueError as ve:
+    #     # Handle invalid integer conversion
+    #     for name, value in zip(["t", "k", "n", "p"], sys.argv[1:5]):
+    #         if not value.isdigit():
+    #             print(f"[!] Invalid value for '{name}': integer required")
+
+    #         # match (name):
+    #         #     case 't':
+    #         #         if not t in {15,18,21,24,27,30}: print("[!] Invalid value: 't' must be {15, 18, 21, 24, 27, 30}")
+
+    #         #     case 'k':
+    #         #         if not (k >= 3): print("[!] Invalid value: 'k' must be >= 3")
+
+    #         #     case 'n':
+    #         #          if not (n >= 5): print("[!] Invalid value: 'n' must be >= 5")
+
+    #         #     case 'p':
+    #         #         if not p in {30, 40, 50, 60, 70}: print("[!] Invalid value: 'p' must be {30, 40, 50, 60, 70}")
+
+    #     sys.exit(1)
+
+    # except Exception as e:
+    #     # Handle wrong number of arguments or other errors
+    #     print("[!] Invalid number of arguments passed: Require 'python client.py <time> <k-value> <n-value> <probability>'.")
+    #     sys.exit(1)
