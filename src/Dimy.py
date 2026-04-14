@@ -28,19 +28,11 @@ class Client:
         self.UDP_RECV_PORT = 5000
         self.UDP_SEND_PORT = 5000
 
-<<<<<<< HEAD
         # UDP socket for receiving shares
         self.UDP_RECV_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # UDP socket for broadcasting shares
         self.UDP_SEND_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         
-=======
-        # UDP socket for shares broadcast
-        self.UDP_RECV_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # UDP socket for broadcasting shares
-        self.UDP_SEND_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    
->>>>>>> 258bcc5 (rebase attemp)
         self.t = t
         self.k = k
         self.n = n
@@ -133,10 +125,6 @@ class Client:
         while not self.stop_event.is_set():
 
             # should be receiving 32 + 3 bytes at a time
-<<<<<<< HEAD
-            
-=======
->>>>>>> 258bcc5 (rebase attemp)
             data, addr = self.UDP_RECV_SOCK.recvfrom(37)
 
             if not data:
@@ -271,7 +259,7 @@ class Client:
                 curr_filter = self.DBF_list.curr_DBF()
                 curr_filter.add_element(encID.to_bytes(32, byteorder='big'))
 
-                self.log_msg.log_local(action="UPDATED", data={'msg': 'Added EncID to DBF', 'data': len(self.DBF_list.curr_DBF())})
+                self.log_msg.log_local(action="UPDATED", data={'msg': 'Added EncID to DBF', 'data': ''})
 
 
     def combine_DBFs(self):
