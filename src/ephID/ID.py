@@ -72,9 +72,15 @@ def combine_shares(shares: list) -> bytearray:
         the shares back, the shares are in form (idx, share)
     """
 
-    recovered = combine(shares)
+    try:
+        recovered = combine(shares, 1)
+        
+        return recovered
+        
+    except Exception as e:
+        print(e)
+        print(f"{shares}")
 
-    return recovered
 
 
 def ECDH(pk, sk):
