@@ -28,11 +28,19 @@ class Client:
         self.UDP_RECV_PORT = 5000
         self.UDP_SEND_PORT = 5000
 
+<<<<<<< HEAD
         # UDP socket for receiving shares
         self.UDP_RECV_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # UDP socket for broadcasting shares
         self.UDP_SEND_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         
+=======
+        # UDP socket for shares broadcast
+        self.UDP_RECV_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # UDP socket for broadcasting shares
+        self.UDP_SEND_SOCK = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    
+>>>>>>> 258bcc5 (rebase attemp)
         self.t = t
         self.k = k
         self.n = n
@@ -125,7 +133,10 @@ class Client:
         while not self.stop_event.is_set():
 
             # should be receiving 32 + 3 bytes at a time
+<<<<<<< HEAD
             
+=======
+>>>>>>> 258bcc5 (rebase attemp)
             data, addr = self.UDP_RECV_SOCK.recvfrom(37)
 
             if not data:
@@ -354,14 +365,14 @@ class Client:
         broadcast_thread will start once self.shares_queue is not empty
 
         """
-
         # enable address reuse for receiving socket
         self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # set up broadcasting socket
         self.UDP_SEND_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        
+    
         try:
             self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+
         except AttributeError:
             pass
 
