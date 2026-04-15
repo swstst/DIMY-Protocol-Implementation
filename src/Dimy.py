@@ -429,7 +429,7 @@ if __name__ == "__main__":
     # except IndexError as e:
     #     has_covid = False
 
-    has_covid = False
+    has_covid = True
     
     client = Client(t=15, k=3, n=5, p=30, has_covid=has_covid)
 

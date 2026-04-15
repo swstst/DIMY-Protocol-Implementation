@@ -1,8 +1,6 @@
 import threading
 import socket, pickle
-# from datetime import datetime
-# from bitarray import bitarray
-# from random import randint
+from bitarray import bitarray
 from collections import deque
 
 from msgFormatter import msgFormatter as MessageFormatter
@@ -38,11 +36,9 @@ class Server:
                 print("QBF", QBF.date.strftime("%H:%M:%S.%f")[:-4], "CBF", f"[{cbf_oldest_date.strftime("%H:%M:%S.%f")[:-4]} - {cbf_newest_date.strftime("%H:%M:%S.%f")[:-4]}]" )
                 break
             
-            matching = QBF.filter ^ cbf.filter 
-
-            if matching.all():
-                return False
-            elif matching.count(1) >= QBF.k:
+            matching = QBF.filter & cbf.filter 
+            
+            if matching.count(1) >= QBF.k:
                 print(matching.count(1), QBF.k)
                 return True
 
