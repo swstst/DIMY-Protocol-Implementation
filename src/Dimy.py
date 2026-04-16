@@ -415,21 +415,19 @@ class Client:
 if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
-    # # comment out for now
-    # t, k, n, p = sys.argv[1:5]
+    # comment out for now
+    t, k, n, p = sys.argv[1:5]
 
-    # assert (int(t) in {15,18,21,24,27,30}), logger.error(msg="Invalid value 't' must be one of {15, 18, 21, 24, 27, 30}")
-    # assert (int(k) >= 3 and int(k) <= int(n)), logger.error(msg="Invalid value 'k' must be >= 3 and < 'n'")
-    # assert (int(n) >= 5), logger.error(msg="Invalid value 'n' must be >= 5")
-    # assert (int(p) in {30, 40, 50, 60, 70}), logger.error(msg="Invalid value 'p' must be one of {30, 40, 50, 60, 70}")
+    assert (int(t) in {15,18,21,24,27,30}), logger.error(msg="Invalid value 't' must be one of {15, 18, 21, 24, 27, 30}")
+    assert (int(k) >= 3 and int(k) <= int(n)), logger.error(msg="Invalid value 'k' must be >= 3 and < 'n'")
+    assert (int(n) >= 5), logger.error(msg="Invalid value 'n' must be >= 5")
+    assert (int(p) in {30, 40, 50, 60, 70}), logger.error(msg="Invalid value 'p' must be one of {30, 40, 50, 60, 70}")
 
     # cmdline arg to mark COVID patient
-    # try:
-    #     has_covid = True
-    # except IndexError as e:
-    #     has_covid = False
-
-    has_covid = True
+    try:
+        has_covid = True if sys.argv[6] else False
+    except IndexError as e:
+        has_covid = False
     
     client = Client(t=15, k=3, n=5, p=30, has_covid=has_covid)
 
