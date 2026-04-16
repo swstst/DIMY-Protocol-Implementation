@@ -2,3 +2,4 @@ pycryptodome
 horcrux
 mmh3
 apscheduler
+bitarray

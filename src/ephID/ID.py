@@ -4,6 +4,7 @@ from Crypto.PublicKey import ECC
 from shamir import Shares, split, combine
 import math
 
+
 def gen_keyPair(d: int):
     """
     Generate ECC key pair for Ephemeral IDs.
@@ -12,13 +13,14 @@ def gen_keyPair(d: int):
         d ==> random 256-bit secret
 
     returns:
-        keyPair ==> ECC key pair 
-        
+        keyPair ==> ECC key pair
+
     """
-    keyPair = ECC.construct(curve='p256', d=d)
+    keyPair = ECC.construct(curve="p256", d=d)
     return keyPair
 
-def gen_EphID(t: int):
+
+def gen_EphID():
     """
     Generate Ephemeral IDs
 
@@ -29,34 +31,35 @@ def gen_EphID(t: int):
         Eph_ID ==> the resulting ephemeral ID (public key of ECC key pair)
     """
     # use t to seed the randomness (?)
-    
+
     # secret - could use secrets instead of PyCrypto's random lib, however didn't find anything bad about it ...
     d = getrandbits(256)
-    
+
     EphID = gen_keyPair(d).pointQ.x
 
     return EphID, d
 
 
-def gen_shares(new_EphID, k:int, n:int) -> tuple:
+def gen_shares(new_EphID, k: int, n: int) -> tuple:
     """
     Generate k-out-of-n shamir shares
 
     args:        new_EphID => the new ephemeral ID
         k => the minimum amount of shares needed to reconstruct ID
         n => ID is split into n shares
-    
+
     return:
         the shares back, the shares are in form (idx, share)
     """
 
     # convert ephID into bytes
-    eph_id_bytes = int(new_EphID).to_bytes(32, byteorder='big')
-    shares = split(secret = eph_id_bytes, parts = n, threshold = k)
+    eph_id_bytes = int(new_EphID).to_bytes(32, byteorder="big")
+    shares = split(secret=eph_id_bytes, parts=n, threshold=k)
 
     return shares
 
-def combine_shares(shares: list) -> bytearray:
+
+def combine_shares(shares: list, k: int) -> bytearray:
     """
     Reconstruct secret from k shares
 
@@ -64,14 +67,18 @@ def combine_shares(shares: list) -> bytearray:
         new_EphID => the new ephemeral ID
         k => the minimum amount of shares needed to reconstruct ID
         n => ID is split into n shares
-    
+
     return:
         the shares back, the shares are in form (idx, share)
     """
+    sanitized_shares = list(set(bytes(s) for s in shares))
+    if len(sanitized_shares) < k:
+        raise ValueError("less than k shares after sanitization")
     
-    recovered = combine(shares)
-
+    recovered = combine(sanitized_shares)
     return recovered
+    
+
 
 def ECDH(pk, sk):
     """
@@ -88,22 +95,21 @@ def ECDH(pk, sk):
     p = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
 
     # FIPS constant
-    b = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
+    b = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
 
-    x = int(pk)
-    y_squared = (x**3 - 3*x + b) % p # p256 curve equation
+    x = int.from_bytes(pk, byteorder='big')
+    y_squared = (x**3 - 3 * x + b) % p  # p256 curve equation
 
     # Tonelli-Shanks Algorithm to get Mod roots
-    y = pow(y_squared, (p + 1) // 4, p) # get the y back ( decompress )
+    y = pow(y_squared, (p + 1) // 4, p)  # get the y back ( decompress )
 
-    #TODO confirm that this has neglible guessing advantage
+    # TODO confirm that this has neglible guessing advantage
 
-    assert((y * y) % p == y_squared)
+    assert (y * y) % p == y_squared
 
     # full public key
-    pub_key = ECC.construct(curve='p256', point_x=x, point_y=y).pointQ
+    pub_key = ECC.construct(curve="p256", point_x=x, point_y=y).pointQ
 
     sharedSecret = pub_key * sk
 
-    return sharedSecret
-
+    return sharedSecret.x
