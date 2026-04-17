@@ -14,6 +14,7 @@ class bloomFilter:
         self.n = n  # expected amount of elements to be input
         self.k = math.floor((m / n) * math.log(2))
         self.date = datetime.now()
+        self.date_range = [self.date, self.date]
 
     def __repr__(self):
         # This is what shows up when you print the object
@@ -59,4 +60,14 @@ class bloomFilter:
 
     def change_date(self, new_date):
         self.date = new_date
+        return
+
+    def update_oldest_date(self, oldest_date):
+        self.date_range[0] = oldest_date
+
+    def update_newest_date(self, newest_date):
+        self.date_range[1] = newest_date
+
+    def update_date_range(self, oldest_date, newest_date):
+        self.date_range = (oldest_date, newest_date)
         return

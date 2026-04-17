@@ -71,11 +71,11 @@ def combine_shares(shares: list, k: int) -> bytearray:
     return:
         the shares back, the shares are in form (idx, share)
     """
-    sanitized_shares = list(set(bytes(s) for s in shares))
-    if len(sanitized_shares) < k:
-        raise ValueError("less than k shares after sanitization")
+    # sanitized_shares = list(set(bytes(s) for s in shares))
+    # if len(sanitized_shares) < k:
+    #     raise ValueError("less than k shares after sanitization")
     
-    recovered = combine(sanitized_shares)
+    recovered = combine(shares)
     return recovered
     
 

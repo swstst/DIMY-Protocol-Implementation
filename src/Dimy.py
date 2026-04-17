@@ -18,10 +18,8 @@ from bloomFilter.bloomFilter import bloomFilter
 from msgFormatter import msgFormatter as MessageFormatter
 
 
-# Keep logs in a queue.
-
 class Client:
-    def __init__(self, t: int, k: int, n: int, p: int):
+    def __init__(self, t: int, k: int, n: int, p: int, has_covid: bool):
 
         self.CLIENT_ID = random.randrange(1000, 10_000)
 
@@ -41,6 +39,7 @@ class Client:
         self.DBF_list = NodeDBFList(t, n, m=800_000)
 
         self.stop_event = threading.Event()
+        self.stop_qbf_upload = threading.Event()
          
         self.curr_EphID = None
         self.curr_secret = None
@@ -55,7 +54,7 @@ class Client:
 
         self.EphIDs = Queue()
 
-        self.has_COVID = False
+        self.has_COVID = has_covid
 
         self.log_msg = MessageFormatter.MessageFormatter(origin=f'client_{self.CLIENT_ID}')
 
@@ -68,7 +67,7 @@ class Client:
         
             # generate new EphID
             self.curr_EphID, self.curr_secret = ID.gen_EphID()
-            self.log_msg.log_local(action="CREATED", data={'type': 'EphID', 'data': f"{self.curr_EphID.to_bytes(32, byteorder='big')}.."})
+            self.log_msg.log_local(action="CREATED", data={'type': 'EphID', 'data': f"{self.curr_EphID.to_bytes(32, byteorder='big')[0:3].hex()}.."})
 
             # generate new HashID based on EphID
             hash_EphID = bytearray(
@@ -110,7 +109,7 @@ class Client:
                 # broadcast share over UDP
                 self.UDP_SEND_SOCK.sendto(msg, ('255.255.255.255', self.UDP_SEND_PORT))
                 
-                self.log_msg.send(receiver="client", action="SEND SHARE", data={'hash id': f"{msg[:3].hex()}..", 'share': f"{msg[3:6].hex()}.."})
+                self.log_msg.send(receiver="client", action="BROADCAST", data={'hash id': f"{msg[:3].hex()}..", 'share': f"{msg[3:6].hex()}.."})
 
                 delay = time.perf_counter() - start_timer 
 
@@ -139,19 +138,17 @@ class Client:
                 continue
 
             # if probability < defined probability, drop message
-            # p = random.randrange(0, 100)
-
-            # if p < self.p:
-            #     continue
+            p = random.randrange(0, 100)
+            if p < self.p:
+                continue
 
             self.log_msg.recv(sender=f"client_{key.hex()}", data={'hash id': f"{key.hex()}", 'share': f"{ephID[:3].hex()}.."})
             
-            # store data
+            # store data safely in queue to prevent race conditions
             self.recv_shares.put([key, ephID])
 
             # keep track of shares received that belong to the same ephID
             self.update_recv_share_ids_count(key)
-
 
 
     def update_recv_share_ids_count(self, key) -> None:
@@ -166,9 +163,7 @@ class Client:
         else:
             self.share_ids_counter[key.hex()] += 1
 
-        self.log_msg.recv(sender=f"client_{key.hex()}", data={'share_num': self.share_ids_counter[key.hex()]})
-
-
+        self.log_msg.recv(sender=f"client_{key.hex()}", data={'hash id': key.hex(), 'i': self.share_ids_counter[key.hex()]})
 
     def clear_share_ids_count_cache(self) -> None:
         """
@@ -187,13 +182,12 @@ class Client:
     #             if self.share_ids_counter[k] == self.k:
     #                 self.clear_share_ids_count_cache()
     #                 return True, k
-                
+    
     
     def reconstruct_shares(self):
         """
         Check if k-shares have been received for any clients given t seconds.
         """
-        print("RECONSTRUCTING")
         delay = self.t
         elapsed_time = 0
 
@@ -220,11 +214,10 @@ class Client:
 
                 if k not in shares.keys():
                     shares[k] = [v]
-
                     continue
 
                 shares[k].append(v)
-
+                
             for hash_id, ephID_shares in shares.items():
 
                 # do nothing if not enough shares received
@@ -235,7 +228,8 @@ class Client:
                     # otherwise, reconstruct the shares
                     temp_ephID = ID.combine_shares(ephID_shares, self.k)
                 except ValueError as e:
-                    self.log_msg.log_local(action="FAIL", data={'type': e})
+                    print(e)
+                    # self.log_msg.log_local(action="FAIL", data={'type': e})
                     continue
 
                 ephID_hash = SHA256.new(temp_ephID).digest()[0 : len(hash_id)]
@@ -261,7 +255,6 @@ class Client:
 
                 self.log_msg.log_local(action="UPDATED", data={'msg': 'Added EncID to DBF', 'data': ''})
 
-
     def combine_DBFs(self):
         """
         Combines all available DBFs into a single bloom filter.
@@ -270,21 +263,32 @@ class Client:
         aggr_bloomFilter = bloomFilter(n=6, m=800_000)
         curr_DBF_list = self.DBF_list.get_curr_DBF_queue()
 
-        oldest_date = datetime.now()
+        curr_date = datetime.now()
+        
         for dbf in curr_DBF_list:
             aggr_bloomFilter.merge_filter(dbf)
-            oldest_date = min(oldest_date, dbf.date)
+            oldest_date = min(curr_date, dbf.date)
 
         return aggr_bloomFilter, oldest_date
 
     def make_cbf(self) -> None:
-        CBF, _ = self.combine_DBFs()
+        CBF, oldest_date = self.combine_DBFs()
 
-        self.log_msg.log_local(action="CREATED", data={'type': 'CBF', 'data': CBF})
+        # check if entire bitarray == 0
+        if (~CBF.filter).all(): print('all 0s')
+
+        # check if entire bitarray == 1
+        if (CBF.filter).all(): print('all 1s')
+
+        self.log_msg.log_local(action="CREATED", data={'type': 'CBF'})
+
+        CBF.update_oldest_date(oldest_date=oldest_date)
+
+        return CBF
 
     def make_qbf(self):
         combined_BF, oldest_date = self.combine_DBFs()
-        combined_BF.change_date(oldest_date)
+        combined_BF.update_oldest_date(oldest_date)
         qbf = combined_BF
         
         self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (oldest_date.strftime("%H:%M:%S.%f")[:-3], len(qbf.filter))})
@@ -298,51 +302,65 @@ class Client:
 
         self.log_msg.log_local(action="INIT", data={'TCP port': self.UDP_RECV_PORT, 'TCP port': '55000'})
 
-        bf = pickle.dumps((bf_type, data))
+        sock.sendall(pickle.dumps((bf_type.encode(), data)))
 
-        sock.sendall(bf)
+        msg = "Stop QBF creation ... " if bf_type == 'CBF' else f"Querying backend server ... "
 
-        self.log_msg.send(receiver="server", action=f"SEND {bf_type}", data={bf_type: data})
-
+        self.log_msg.send(receiver="server", action=f"UPLOAD {bf_type}", data={'msg': msg})
+        
         resp = sock.recv(1024).decode()
 
         sock.shutdown(1)
 
         sock.close()
 
-        self.log_msg.recv(sender="server", data={'msg': resp})
-
         return resp
 
     def upload_bf_to_server(self):
         
         # in seconds (t * 6 * 6)
-        dt = self.t * 2
-        # dt = self.t * 6 * 6
+        dt = self.t * 6 # temp 
 
+        # For simulating testing positive for COVID and uploading CBF
         # sent qbf counter
-        p = 0
+        num_qbf_sent = 0
+        # qbfs sent until tested positive for COVID
+        threshold = 0
         
-        while not self.stop_event.is_set():
+        while not self.stop_event.is_set() and not self.stop_qbf_upload.is_set():
             
             time.sleep(dt)
 
-            if p == 10 and self.has_COVID:
+            if num_qbf_sent >= threshold and self.has_COVID:
                 cbf = self.make_cbf()
                 
                 resp = self.send(data=cbf, bf_type='CBF')
 
+                self.log_msg.recv(sender="server", data={'msg': resp})
+
+                self.stop_qbf_upload.set()
+
+                continue
+                
             # get new QBF
             qbf = self.make_qbf()
              
             resp = self.send(data=qbf, bf_type='QBF')
 
-            p += 1
+            self.log_msg.recv(sender="server", data={'msg': resp})
+
+            num_qbf_sent += 1
 
             if resp == 'MATCH FOUND':
-                self.log_msg.recv(sender="server", data={'msg': f"{resp} - is a close contact."})
-                # bonus: use some probability var to change self.has_COVID to true after receiving match.
-                
+                self.log_msg.recv(sender="server", data={'msg': f"{resp}! Close contact alert."})
+                                
+                '''
+                # The probability of contracting COVID-19 after exposure varies widely, 
+                # generally ranging from roughly 2% for brief, close contact (under an hour) 
+                # up to over 40% for #sustained household contact.
+                '''
+
+                self.has_COVID = True if random.randrange(0, 1000) < 2 else False
 
     def run(self):
         """
@@ -393,93 +411,22 @@ class Client:
 if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
-    # # comment out for now
-    # # graceful invalid input handling
-    # t, k, n, p = sys.argv[1:5]
+    # comment out for now
+    t, k, n, p = sys.argv[1:5]
 
-    # assert (int(t) in {15,18,21,24,27,30}), logger.error(msg="Invalid value 't' must be one of {15, 18, 21, 24, 27, 30}")
-    # assert (int(k) >= 3 and int(k) <= int(n)), logger.error(msg="Invalid value 'k' must be >= 3 and < 'n'")
-    # assert (int(n) >= 5), logger.error(msg="Invalid value 'n' must be >= 5")
-    # assert (int(p) in {30, 40, 50, 60, 70}), logger.error(msg="Invalid value 'p' must be one of {30, 40, 50, 60, 70}")
+    assert (int(t) in {15,18,21,24,27,30}), logger.error(msg="Invalid value 't' must be one of {15, 18, 21, 24, 27, 30}")
+    assert (int(k) >= 3 and int(k) <= int(n)), logger.error(msg="Invalid value 'k' must be >= 3 and < 'n'")
+    assert (int(n) >= 5), logger.error(msg="Invalid value 'n' must be >= 5")
+    assert (int(p) in {30, 40, 50, 60, 70}), logger.error(msg="Invalid value 'p' must be one of {30, 40, 50, 60, 70}")
+
+    # cmdline arg to mark COVID patient
+    try:
+        has_covid = True if sys.argv[6] else False
+    except IndexError as e:
+        has_covid = False
     
-    print('starting client')
-    client = Client(t=15, k=3, n=5, p=30)
-
-    print('created client')
-    print()
-    print()
+    client = Client(t=15, k=3, n=5, p=30, has_covid=has_covid)
 
     client.run()
 
     threading.Event().wait()
-    
-
-    threading.Event().wait()
-    
-    # client.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-    # try:
-    #     client.UDP_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    # except AttributeError:
-    #     pass
-
-    # # start listening on receiving UDP port
-    # client.UDP_SOCK.bind((UDP_BROADCAST_ADDR, client.UDP_RECV_PORT))
-    
-    # client.log_msg.log_local(action="INIT", data={'UDP port': client.UDP_RECV_PORT, 'TCP port': '55000'})
-
-    # # init threads
-    # udp_recv_thread = threading.Thread(target=client.udp_receiver, daemon=False)
-    # reconstruct_ephID_thread = threading.Thread(target=client.reconstruct_shares, daemon=False)
-
-    # # start threads
-    # udp_recv_thread.start()
-    # reconstruct_ephID_thread.start()
-
-    # client.scheduler.add_job(func=client.gen_EphID_shares, trigger='interval', seconds=client.t, coalesce=True, max_instances=50)
-    
-    # # broadcast shares over UDP every 3 seconds
-    # client.scheduler.add_job(func=client.broadcast_shares, trigger='interval', seconds=3, coalesce=True, max_instances=50)
-    
-    # # reconstruct ephIDs once k-shares have been received
-    # client.scheduler.start()
-
-    # while True:
-    #     time.sleep(0.01)
-    
-    
-
-    # # Unpack arguments
-    # t, k, n, p = sys.argv[1:5]
-    
-    # # Convert to integers
-    # t, k, n, p = int(t), int(k), int(n), int(p)
-    
-    # # Create client class
-    # client = Client(t=t, k=k, n=n, p=p)
-
-    # except ValueError as ve:
-    #     # Handle invalid integer conversion
-    #     for name, value in zip(["t", "k", "n", "p"], sys.argv[1:5]):
-    #         if not value.isdigit():
-    #             print(f"[!] Invalid value for '{name}': integer required")
-
-    #         # match (name):
-    #         #     case 't':
-    #         #         if not t in {15,18,21,24,27,30}: print("[!] Invalid value: 't' must be {15, 18, 21, 24, 27, 30}")
-
-    #         #     case 'k':
-    #         #         if not (k >= 3): print("[!] Invalid value: 'k' must be >= 3")
-
-    #         #     case 'n':
-    #         #          if not (n >= 5): print("[!] Invalid value: 'n' must be >= 5")
-
-    #         #     case 'p':
-    #         #         if not p in {30, 40, 50, 60, 70}: print("[!] Invalid value: 'p' must be {30, 40, 50, 60, 70}")
-
-    #     sys.exit(1)
-
-    # except Exception as e:
-    #     # Handle wrong number of arguments or other errors
-    #     print("[!] Invalid number of arguments passed: Require 'python client.py <time> <k-value> <n-value> <probability>'.")
-    #     sys.exit(1)
