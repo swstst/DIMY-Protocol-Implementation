@@ -272,15 +272,15 @@ class Client:
         return aggr_bloomFilter, oldest_date
 
     def make_cbf(self) -> None:
+        """
+        Would send all 1 Bloom filter here not CBF anymore
+        """
         CBF, oldest_date = self.combine_DBFs()
 
-        # check if entire bitarray == 0
-        if (~CBF.filter).all(): print('all 0s')
-
-        # check if entire bitarray == 1
-        if (CBF.filter).all(): print('all 1s')
-
         self.log_msg.log_local(action="CREATED", data={'type': 'CBF'})
+        
+        # Set all to 1
+        CBF.filter.setall(1)
 
         return CBF
 
