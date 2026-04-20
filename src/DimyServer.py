@@ -25,14 +25,11 @@ class Server:
 
         if not len(cbfs):
             return False 
-
-        qbf_oldest_date, qbf_newest_date = QBF.date_range
         
         for cbf in cbfs:
-            cbf_oldest_date, cbf_newest_date = cbf.date_range
             
             # if QBF creation time is before CBF upload, then ignore
-            if qbf_newest_date < cbf_oldest_date or qbf_oldest_date > cbf_newest_date:
+            if QBF.date > cbf.date:
                 print("QBF", QBF.date.strftime("%H:%M:%S.%f")[:-4], "CBF", f"[{cbf_oldest_date.strftime("%H:%M:%S.%f")[:-4]} - {cbf_newest_date.strftime("%H:%M:%S.%f")[:-4]}]" )
                 break
             
