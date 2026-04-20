@@ -51,10 +51,7 @@ class bloomFilter:
         return True
 
     def merge_filter(self, BF1):
-        print('m:', BF1.m, type(BF1.m), self.m, type(self.m))
-        assert BF1.m == self.m, "the bloom filter size does not match"
-        print('n:', BF1.n, type(BF1.n), self.n, type(self.n))
-        assert BF1.n == self.n, "the bloom filter elements does not match"
+        assert BF1.m == self.m and BF1.n == self.n
 
         self.filter = self.filter | BF1.filter
 
