@@ -286,7 +286,7 @@ class Client:
 
     def make_qbf(self):
         combined_BF, oldest_date = self.combine_DBFs()
-        combined_BF.update_oldest_date(oldest_date)
+        combined_BF.change_date(oldest_date)
         qbf = combined_BF
         
         self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (oldest_date.strftime("%H:%M:%S.%f")[:-3], len(qbf.filter))})
