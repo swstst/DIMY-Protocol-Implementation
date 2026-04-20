@@ -170,19 +170,7 @@ class Client:
         Free up space of same EphID share counter every t-seconds
         """
         self.share_ids_counter.clear()
-        
-
-    # def check_for_k_shares(self) -> tuple:
-    #     # blocking
-    #     while not self.stop_event.is_set():
-            
-    #         time.sleep(self.t)
-            
-    #         for k in self.share_ids_counter.keys():
-    #             if self.share_ids_counter[k] == self.k:
-    #                 self.clear_share_ids_count_cache()
-    #                 return True, k
-    
+           
     
     def reconstruct_shares(self):
         """
