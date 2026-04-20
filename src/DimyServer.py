@@ -21,22 +21,19 @@ class Server:
         # prevent race condition
         cbfs = self.CBFs.copy()
 
-        print(len(cbfs))
 
         if not len(cbfs):
             return False 
         
         for cbf in cbfs:
             
-            # if QBF creation time is before CBF upload, then ignore
+            # if QBF creation time is after CBF upload, then ignore
             if QBF.date > cbf.date:
-                print("QBF", QBF.date.strftime("%H:%M:%S.%f")[:-4], "CBF", f"[{cbf_oldest_date.strftime("%H:%M:%S.%f")[:-4]} - {cbf_newest_date.strftime("%H:%M:%S.%f")[:-4]}]" )
                 break
             
             matching = QBF.filter & cbf.filter 
             
             if matching.count(1) >= QBF.k:
-                print(matching.count(1), QBF.k)
                 return True
 
         return False

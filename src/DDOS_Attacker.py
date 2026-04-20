@@ -52,35 +52,43 @@ class Attacker:
                         continue
 
                   # process data
-                  d = bytearray(data)
-                  key, ephID = d[0:3], d[3:]
+                  ephID = bytearray(data)
 
-                  # if probability < defined probability, drop message
                   p = random.randrange(0, 100)
                   if p < self.p:
                         continue
 
-            self.log_msg.recv(sender=f"client_{key.hex()}", data={'hash id': f"{key.hex()}", 'share': f"{ephID[:3].hex()}.."})
+                  self.log_msg.recv(sender=f"client_{ephID[:3].hex()}", data={'hash id': f"{ephID[:3].hex()}", 'share': f"{ephID[3:6].hex()}.."})
             
-            # store data safely in queue to prevent race conditions
-            self.recv_shares.put([key, ephID])
+                  # store data safely in queue to prevent race conditions
+                  self.recv_shares.put(ephID)
 
       def modify_shares(self, share:bytearray) -> bytearray:
             '''
             Flips a random bit in the array
             '''
-            temp = bitarray().frombytes(share)
+
+            temp = bitarray()
+            temp.frombytes(share)
+            
+            # don't override the hashID
             i = random.randrange(3, len(temp))
+
+            self.log_msg.log_local(action='EDITING', data={'original': temp[i - 2: i + 1]})
 
             temp[i] ^= 1
 
-            return bytearray(temp)
+            self.log_msg.log_local(action='MODIFIED', data={'modified': temp[i - 2: i + 1]})
+            
+            return bytearray(temp.tobytes())
+
             
       def broadcast_fake_shares(self) -> None:
             '''
             Broadcasts fake shares every 1 second to prevent clients from constructing valid shares.
             '''
             curr_share = False
+            self.log_msg.log_local(action='WAITING', data={'msg': 'waiting for clients ...'})
             
             while not self.stop_event.is_set():
                   # An attacker is more likely to succeed the more bogus shares it broadcasts. 
@@ -90,8 +98,7 @@ class Attacker:
                         curr_share = self.recv_shares.get(block=False)
                         prev_share = curr_share.copy()
                         
-                  except Exception as e:
-                        print(e)
+                  except Exception:
                         # case 1: no received shares at all because no clients exists so don't bother broadcasting bogus shares.
                         if curr_share == False:
                               continue
@@ -103,7 +110,9 @@ class Attacker:
                   bogus_share = self.modify_shares(curr_share)
 
                   # broadcast the share
-                  self.send_sock(bogus_share, ('255.255.255.255', self.send_port))
+                  self.send_sock.sendto(bogus_share, ('255.255.255.255', self.send_port))
+
+                  self.log_msg.send(receiver='client', action='BROADCAST', data={'hash id': f"{bogus_share[:3].hex()}..", 'modified share': f"{bogus_share[3:6].hex()}.."})
 
       def run(self) -> None:
             # enable address reuse for receiving socket
@@ -121,11 +130,12 @@ class Attacker:
             
             get_shares_thread = threading.Thread(target=self.get_shares, daemon=False)
             broadcast_fake_shares_thread = threading.Thread(target=self.broadcast_fake_shares, daemon=False)
-            # print log thread
-            
+            print_log_thread = threading.Thread(target=self.log_msg.print_logs, daemon=False)
+
             get_shares_thread.start()
             broadcast_fake_shares_thread.start()
-            # print log thread start
+            print_log_thread.start()
+            
 
       def stop_all_processes(self):
             self.stop_event.set()
@@ -134,7 +144,7 @@ class Attacker:
 if __name__ == '__main__':
       logger = logging.getLogger(__name__)
       
-      t, k, n, p = sys.argv[1:5]
+      t, k, n, p = (int(i) for i in sys.argv[1:5])
 
       assert (int(t) in {15,18,21,24,27,30}), logger.error(msg="Invalid value 't' must be one of {15, 18, 21, 24, 27, 30}")
       assert (int(k) >= 3 and int(k) <= int(n)), logger.error(msg="Invalid value 'k' must be >= 3 and < 'n'")

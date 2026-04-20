@@ -29,8 +29,16 @@ class MessageFormatter:
             time = datetime.now().strftime("%H:%M:%S.%f")[:-4]
             fdata = '; '.join(f"{k} = {v}" for k, v in data.items()) if data else ''
 
-            x = 'S' if self.origin == 'server' else 'C'
-            y = 'S' if receiver == 'server' else 'C'
+            match (self.origin):
+                  case 'server':
+                        x = 'S'
+                        y = 'C'
+                  case 'attacker':
+                        x = 'A'
+                        y = 'C'
+                  case _:
+                        x = 'C'
+                        y = 'S'
 
             log = "{:<12} [{:<5}] | {:<10} | {:<10} -> {:<10}".format(time, f"{x}-->{y}", action, self.origin, receiver)
 
@@ -42,8 +50,15 @@ class MessageFormatter:
             time = datetime.now().strftime("%H:%M:%S.%f")[:-4]
             fdata = '; '.join(f"{k} = {v}" for k, v in data.items()) if data else ''
 
+            match (self.origin):
+                  case 'server':
+                        y = 'S'
+                  case 'attacker':
+                        y = 'A'
+                  case _:
+                        y = 'C'
+
             x = 'S' if sender == 'server' else 'C'
-            y = 'S' if self.origin == 'server' else 'C'
 
             log = "{:<12} [{:<5}] | {:<10} | {:<10} -> {:<10}".format(time, f"{x}-->{y}", 'RECV', sender, self.origin)
 

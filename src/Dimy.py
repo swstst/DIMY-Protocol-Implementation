@@ -105,8 +105,6 @@ class Client:
                 
                 msg = self.curr_HashID + share
                
-                # TODO possibly need to have different ports for different instances
-                # broadcast share over UDP
                 self.UDP_SEND_SOCK.sendto(msg, ('255.255.255.255', self.UDP_SEND_PORT))
                 
                 self.log_msg.send(receiver="client", action="BROADCAST", data={'hash id': f"{msg[:3].hex()}..", 'share': f"{msg[3:6].hex()}.."})
@@ -114,6 +112,9 @@ class Client:
                 delay = time.perf_counter() - start_timer 
 
                 time.sleep(3 - delay)
+
+        # close UDP connection
+        self.UDP_SEND_SOCK.close()
 
 
     def udp_receiver(self) -> None:
@@ -149,6 +150,9 @@ class Client:
 
             # keep track of shares received that belong to the same ephID
             self.update_recv_share_ids_count(key)
+
+        # close UDP connection
+        self.UDP_RECV_SOCK.close()
 
 
     def update_recv_share_ids_count(self, key) -> None:
@@ -215,9 +219,9 @@ class Client:
                 try:
                     # otherwise, reconstruct the shares
                     temp_ephID = ID.combine_shares(ephID_shares, self.k)
+                    
                 except ValueError as e:
-                    print(e)
-                    # self.log_msg.log_local(action="FAIL", data={'type': e})
+                    self.log_msg.log_local(action="FAIL", data={'msg': 'Failed to reconstruct Ephemeral ID shares...'})
                     continue
 
                 ephID_hash = SHA256.new(temp_ephID).digest()[0 : len(hash_id)]
@@ -248,7 +252,7 @@ class Client:
         Combines all available DBFs into a single bloom filter.
 
         """
-        aggr_bloomFilter = bloomFilter(n=6, m=800_000)
+        aggr_bloomFilter = bloomFilter(n=self.n, m=800_000)
         curr_DBF_list = self.DBF_list.get_curr_DBF_queue()
 
         curr_date = datetime.now()
@@ -305,7 +309,7 @@ class Client:
     def upload_bf_to_server(self):
         
         # in seconds (t * 6 * 6)
-        dt = self.t * 6 * 6# temp 
+        dt =  self.t * 6 * 6 
 
         # For simulating testing positive for COVID and uploading CBF
         # sent qbf counter
@@ -314,7 +318,6 @@ class Client:
         threshold = 0
         
         while not self.stop_event.is_set() and not self.stop_qbf_upload.is_set():
-            
             time.sleep(dt)
 
             if num_qbf_sent >= threshold and self.has_COVID:
@@ -327,8 +330,8 @@ class Client:
                 self.stop_qbf_upload.set()
 
                 continue
-                
-            # get new QBF
+
+            # get new QBF 
             qbf = self.make_qbf()
              
             resp = self.send(data=qbf, bf_type='QBF')
@@ -389,32 +392,31 @@ class Client:
         upload_to_server_thread.start()
         print_log_thread.start()
 
-
     def stop_all_processes(self):
         self.stop_event.set()
-
+        
 
 if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     # comment out for now
-    t, k, n, p = sys.argv[1:5]
+    t, k, n, p = (int(i) for i in sys.argv[1:5])
 
-    assert (int(t) in {15,18,21,24,27,30}), logger.error(msg="Invalid value 't' must be one of {15, 18, 21, 24, 27, 30}")
-    assert (int(k) >= 3 and int(k) <= int(n)), logger.error(msg="Invalid value 'k' must be >= 3 and < 'n'")
-    assert (int(n) >= 5), logger.error(msg="Invalid value 'n' must be >= 5")
-    assert (int(p) in {30, 40, 50, 60, 70}), logger.error(msg="Invalid value 'p' must be one of {30, 40, 50, 60, 70}")
+    assert (t in {15,18,21,24,27,30}), logger.error(msg="Invalid value 't' must be one of {15, 18, 21, 24, 27, 30}")
+    assert (k >= 3 and k <= n), logger.error(msg="Invalid value 'k' must be >= 3 and < 'n'")
+    assert (n >= 5), logger.error(msg="Invalid value 'n' must be >= 5")
+    assert (p in {30, 40, 50, 60, 70}), logger.error(msg="Invalid value 'p' must be one of {30, 40, 50, 60, 70}")
 
     # cmdline arg to mark COVID patient
     try:
-        has_covid = True if sys.argv[6] else False
+        has_covid = True if sys.argv[5] else False
     except IndexError as e:
         has_covid = False
 
     if t and k and n and p:
         client = Client(t=t, k=k, n=n, p=p, has_covid=has_covid)
     else:
-        client = Client(t=15, k=3, n=5, p=30, has_covid=has_covid)
+        client = Client(t=t, k=k, n=n, p=p, has_covid=has_covid)
 
     client.run()
 

@@ -16,8 +16,6 @@ class NodeDBFList:
         self.scheduler.add_job(self._DBF_add, "interval", seconds=t * 6)
         self.scheduler.start()
 
-    # TODO maybe add a __repr__ in the bloomFilter class? to have beautiful prints
-
     def _DBF_add(self):
         """
         Adds a DBF to the list
