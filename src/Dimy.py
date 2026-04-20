@@ -317,7 +317,7 @@ class Client:
     def upload_bf_to_server(self):
         
         # in seconds (t * 6 * 6)
-        dt = self.t * 6 # temp 
+        dt = self.t * 6 * 6# temp 
 
         # For simulating testing positive for COVID and uploading CBF
         # sent qbf counter
