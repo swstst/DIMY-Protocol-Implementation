@@ -51,7 +51,7 @@ class bloomFilter:
         return True
 
     def merge_filter(self, BF1):
-        assert BF1.m != self.m or BF1.n != self.n
+        assert BF1.m == self.m and BF1.n == self.n
 
         self.filter = self.filter | BF1.filter
 

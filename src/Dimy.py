@@ -248,7 +248,7 @@ class Client:
         Combines all available DBFs into a single bloom filter.
 
         """
-        aggr_bloomFilter = bloomFilter(n=6, m=800_000)
+        aggr_bloomFilter = bloomFilter(n=self.n, m=800_000)
         curr_DBF_list = self.DBF_list.get_curr_DBF_queue()
 
         curr_date = datetime.now()
