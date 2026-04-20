@@ -422,8 +422,11 @@ if __name__ == "__main__":
         has_covid = True if sys.argv[6] else False
     except IndexError as e:
         has_covid = False
-    
-    client = Client(t=15, k=3, n=5, p=30, has_covid=has_covid)
+
+    if t and k and n and p:
+        client = Client(t=t, k=k, n=n, p=p, has_covid=has_covid)
+    else:
+        client = Client(t=15, k=3, n=5, p=30, has_covid=has_covid)
 
     client.run()
 
