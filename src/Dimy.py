@@ -374,12 +374,12 @@ class Client:
         self.log_msg.log_local(action="INIT", data={'status': 'listening', 'port': self.UDP_SEND_PORT })
         
         # init threads
-        udp_recv_thread = threading.Thread(target=self.udp_receiver, daemon=False)
-        broadcast_shares_thread = threading.Thread(target=self.broadcast_shares, daemon=False)
-        gen_EphID_thread = threading.Thread(target=self.gen_EphID_shares, daemon=False)
-        reconstruct_ephID_thread = threading.Thread(target=self.reconstruct_shares, daemon=False)
-        upload_to_server_thread = threading.Thread(target=self.upload_bf_to_server, daemon=False)
-        print_log_thread = threading.Thread(target=self.log_msg.print_logs, daemon=False)
+        udp_recv_thread = threading.Thread(target=self.udp_receiver, daemon=True)
+        broadcast_shares_thread = threading.Thread(target=self.broadcast_shares, daemon=True)
+        gen_EphID_thread = threading.Thread(target=self.gen_EphID_shares, daemon=True)
+        reconstruct_ephID_thread = threading.Thread(target=self.reconstruct_shares, daemon=True)
+        upload_to_server_thread = threading.Thread(target=self.upload_bf_to_server, daemon=True)
+        print_log_thread = threading.Thread(target=self.log_msg.print_logs, daemon=True)
 
         # start threads
         udp_recv_thread.start()
@@ -417,5 +417,9 @@ if __name__ == "__main__":
         client = Client(t=15, k=3, n=5, p=30, has_covid=has_covid)
 
     client.run()
-
-    threading.Event().wait()
+   
+    try:
+        while True:
+            time.sleep(1) 
+    except KeyboardInterrupt:
+        print("Shutting down...")
