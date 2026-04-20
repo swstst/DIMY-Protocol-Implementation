@@ -34,7 +34,7 @@ class Client:
         self.t = t
         self.k = k
         self.n = n
-        self.p = int(p)
+        self.p = p
 
         self.DBF_list = NodeDBFList(t, n, m=800_000)
 
@@ -403,6 +403,15 @@ class Client:
         upload_to_server_thread.start()
         print_log_thread.start()
 
+        
+        # join threads 
+        udp_recv_thread.join()
+        broadcast_shares_thread.join()
+        gen_EphID_thread.join()
+        reconstruct_ephID_thread.join()
+        upload_to_server_thread.join()
+        print_log_thread.join()
+        
 
     def stop_all_processes(self):
         self.stop_event.set()
@@ -424,9 +433,21 @@ if __name__ == "__main__":
         has_covid = True if sys.argv[6] else False
     except IndexError as e:
         has_covid = False
-    
-    client = Client(t=15, k=3, n=5, p=30, has_covid=has_covid)
 
-    client.run()
+    try:
+        client = Client(t=15, k=3, n=5, p=30, has_covid=has_covid)
+        client.run()
 
-    threading.Event().wait()
+        threading.Event().wait()
+        
+    except KeyboardInterrupt:
+        # graceful exit...
+        
+        print("\nClient exiting...")
+        
+        client.stop_all_processes()
+
+        threading.Event.wait()
+
+        print("\nGoodbye :)")
+        

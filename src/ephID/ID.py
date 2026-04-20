@@ -74,8 +74,15 @@ def combine_shares(shares: list, k: int) -> bytearray:
     # sanitized_shares = list(set(bytes(s) for s in shares))
     # if len(sanitized_shares) < k:
     #     raise ValueError("less than k shares after sanitization")
-    
-    recovered = combine(shares)
+
+    try:
+        recovered = combine(shares)
+    except Exception as e:
+        # log error
+        ...
+    finally:
+        ...
+                
     return recovered
     
 
