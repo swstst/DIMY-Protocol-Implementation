@@ -56,9 +56,11 @@ class Attacker:
 
                   p = random.randrange(0, 100)
                   if p < self.p:
+                        self.log_msg.recv(task=11, sender=f"client_{ephID[:3].hex()}", action="SHARE DROPPED", data={'reason': "probability", 'p': f'{self.p}', 'rand': p})
+                        
                         continue
 
-                  self.log_msg.recv(sender=f"client_{ephID[:3].hex()}", data={'hash id': f"{ephID[:3].hex()}", 'share': f"{ephID[3:6].hex()}.."})
+                  self.log_msg.recv(task=11, sender=f"client_{ephID[:3].hex()}", action="SHARE RECV", data={'hash id': f"{ephID[:3].hex()}", 'share': f"{ephID[3:6].hex()}.."})
             
                   # store data safely in queue to prevent race conditions
                   self.recv_shares.put(ephID)
@@ -74,11 +76,12 @@ class Attacker:
             # don't override the hashID
             i = random.randrange(3, len(temp))
 
-            self.log_msg.log_local(action='EDITING', data={'original': temp[i - 2: i + 1]})
+            # for logging
+            original = temp[i - 2: i + 5]
 
             temp[i] ^= 1
 
-            self.log_msg.log_local(action='MODIFIED', data={'modified': temp[i - 2: i + 1]})
+            self.log_msg.log_local(task=11, id=None, action='MODIFY SHARE', data={'Hash id': share[:3].hex(), 'original': original, 'modified': temp[i - 2: i + 1]})
             
             return bytearray(temp.tobytes())
 
@@ -88,7 +91,7 @@ class Attacker:
             Broadcasts fake shares every 1 second to prevent clients from constructing valid shares.
             '''
             curr_share = False
-            self.log_msg.log_local(action='WAITING', data={'msg': 'waiting for clients ...'})
+            self.log_msg.log_local(task=11, id=None, action='WAITING FOR SHARES', data={'msg': 'waiting for clients ...'})
             
             while not self.stop_event.is_set():
                   # An attacker is more likely to succeed the more bogus shares it broadcasts. 
@@ -112,7 +115,7 @@ class Attacker:
                   # broadcast the share
                   self.send_sock.sendto(bogus_share, ('255.255.255.255', self.send_port))
 
-                  self.log_msg.send(receiver='client', action='BROADCAST', data={'hash id': f"{bogus_share[:3].hex()}..", 'modified share': f"{bogus_share[3:6].hex()}.."})
+                  self.log_msg.send(task=11, id=None, receiver='client', action='SHARE BROADCAST', data={'hash id': f"{bogus_share[:3].hex()}..", 'modified share': f"{bogus_share[3:6].hex()}.."})
 
       def run(self) -> None:
             # enable address reuse for receiving socket
@@ -146,12 +149,12 @@ if __name__ == '__main__':
       
       t, k, n, p = (int(i) for i in sys.argv[1:5])
 
-      assert (int(t) in {15,18,21,24,27,30}), logger.error(msg="Invalid value 't' must be one of {15, 18, 21, 24, 27, 30}")
-      assert (int(k) >= 3 and int(k) <= int(n)), logger.error(msg="Invalid value 'k' must be >= 3 and < 'n'")
-      assert (int(n) >= 5), logger.error(msg="Invalid value 'n' must be >= 5")
-      assert (int(p) in {30, 40, 50, 60, 70}), logger.error(msg="Invalid value 'p' must be one of {30, 40, 50, 60, 70}")
+      assert (t in {15,18,21,24,27,30}), logger.error(msg="Invalid value 't' must be one of {15, 18, 21, 24, 27, 30}")
+      assert (k >= 3 and k <= n), logger.error(msg="Invalid value 'k' must be >= 3 and < 'n'")
+      assert (n >= 5), logger.error(msg="Invalid value 'n' must be >= 5")
+      assert (p in {30, 40, 50, 60, 70}), logger.error(msg="Invalid value 'p' must be one of {30, 40, 50, 60, 70}")
       
-      attacker = Attacker(t=18, k=4, n=6, p=40)
+      attacker = Attacker(t=t, k=k, n=n, p=p)
       attacker.run()
       
       
