@@ -197,23 +197,28 @@ class Client:
         if self.shares_received[key.hex()]['count'] < self.k:
             return
 
+        self.shares_id_to_reconstruct.put((key.hex(), self.curr_HashID))
+
         self.k_shares_received.set()
 
-        self.shares_id_to_reconstruct.put(key.hex())
 
-
-    def compute_DHKE_EncID(self, ephID) -> int:
+    def compute_DHKE_EncID(self, ephID, used_hashID) -> int:
         """
         Diffie-Hellman Key Exchange to construct EncID.
         """
-        private_key = self.prev_secret
-        public_key = self.prev_EphID
+        private_key = self.curr_secret
+        public_key = self.curr_EphID
+
+        # if hashID that was in place when the shares were collected isnt the current, that its the previous one
+        if used_hashID != self.curr_HashID:
+            private_key = self.prev_secret
+            public_key = self.prev_EphID
         
         encID = int(ID.ECDH(pk=ephID, sk=private_key))
-        hash_id = ephID[:3].hex()
+        hash_id = SHA256.new(ephID).digest()[0 : 3].hex()
         
         self.log_msg.log_local(task='5a', id = self.curr_HashID.hex(), action="ECDH INIT", data={'ECDH Parameters': ''})
-        self.log_msg.log_list_data([f'private key: {private_key}', f'public key: {public_key}'])
+        self.log_msg.log_list_data([f'private key: {hex(private_key)}', f'public key: {hex(public_key)}'])
         
         self.log_msg.recv(task='5a', sender=f'client {hash_id}', action="ECDH COMPUTE PK", data={'public key (from EphID)': f"{ephID.hex()}"})
 
@@ -240,7 +245,7 @@ class Client:
                 continue
 
             # reconstruct shares from queue based on hash ID
-            hash_id = self.shares_id_to_reconstruct.get(block = True)
+            hash_id, used_hashID = self.shares_id_to_reconstruct.get(block = True)
 
             # get shares
             k_shares = self.shares_received[hash_id]['shares']
@@ -269,7 +274,7 @@ class Client:
             self.EphIDs.put(valid_ephID)
 
             # compute EncID
-            encID = self.compute_DHKE_EncID(valid_ephID)
+            encID = self.compute_DHKE_EncID(valid_ephID, used_hashID)
             self.log_msg.recv(task='5a', sender=f'client {hash_id}', action="ECDH COMPUTE", data={'EncID': f"{encID}"})
 
             # put EncID into DBF
@@ -277,100 +282,11 @@ class Client:
                         
             # reset flag 
             self.k_shares_received.clear()
-    
-    
-    def old_reconstruct_shares(self):
-        """
-        Reconstruct shares once k-shares have been received.
-        """
-        delay = self.k * 3
-        elapsed_time = 0
-
-        while not self.stop_event.is_set():
-
-            # attempt to reconstruct received shares every t-interval
-            time.sleep(delay - elapsed_time)
-
-            # make a copy of the received shares queue
-            recv_shares_copy = self.temp_recv_shares_cache
-
-            # get length of received shares copy to prevent race conditions
-            num_recv_shares = recv_shares_copy.qsize()
-
-            # temporary hash map to store and process received shares
-            shares = dict()
-
-            # remove processed shares from recv_shares queue
-            for _ in range(num_recv_shares):
-
-                data = self.temp_recv_shares_cache.get()
-
-                k, v = bytes(data[0]), data[1]
-
-                if k not in shares.keys():
-                    shares[k] = [v]
-                    continue
-
-                shares[k].append(v)
-                
-            for hash_id, ephID_shares in shares.items():
-
-                num_shares = len(ephID_shares)
-
-                # do nothing if not enough shares received
-                if num_shares < self.k:
-                    continue
-
-                self.log_msg.recv(task='4a', sender=f'client {hash_id.hex()}', action='RECONSTRUCT ATTEMPT', data={'number of shares used': f'{num_shares}/{self.n}'})
-                self.log_msg.log_list_data([f"share {i}: {share.hex()}" for i, share in enumerate(ephID_shares)])
-
-                try:
-                    # otherwise, reconstruct the shares
-                    temp_ephID = ID.combine_shares(ephID_shares, self.k)
-
-                    self.log_msg.recv(task='4a', sender=f'client {hash_id.hex()}', action='RECONSTRUCT SUCCESS', data={'Reconstructed EphID': f'{temp_ephID[:6].hex()}..'} )
-
-                except ValueError as e:
-                    self.log_msg.recv(task='4a', sender=f'client {hash_id.hex()}', action='RECONSTRUCT FAILED', data={'error': e} )
-                    continue
-
-                ephID_hash = SHA256.new(temp_ephID).digest()[0 : len(hash_id)]
-
-                # verify reconstructed shares
-                if ephID_hash != hash_id:                    
-                    continue
-
-                self.log_msg.recv(task='4b', sender=f'client {hash_id.hex()}', action='HASH VERIFY', data={'computed': ephID_hash.hex(), 'expected': hash_id.hex(), 'status': f'Hash match {ephID_hash == hash_id}'})
-
-                valid_ephID = temp_ephID
-                self.EphIDs.put(valid_ephID)
-
-                # for logging
-                private_key = self.prev_secret
-                public_key = self.prev_EphID
-
-                self.log_msg.log_local(task='5a', id = self.curr_HashID.hex(), action="ECDH INIT", data={'ECDH Parameters': ''})
-                self.log_msg.log_list_data([f'private key: {private_key}', f'public key: {public_key}'])
-                self.log_msg.recv(task='5a', sender=f'client {hash_id.hex()}', action="ECDH RECV PK", data={'public key (from EphID)': f"{valid_ephID.hex()}"})
-
-                # successful reconstruction of shares can proceed to generate EncID. 
-                encID = int(ID.ECDH(pk=valid_ephID, sk=private_key))
-                self.log_msg.recv(task='5a', sender=f'client {hash_id.hex()}', action="ECDH COMPUTE", data={'EncID': f"{encID}"})
-                
-                # put encID into bloom filter
-                curr_filter = self.DBF_list.curr_DBF()
-                filter_before = curr_filter._get_set_bits()
-                curr_filter.add_element(encID.to_bytes(32, byteorder='big'))
-                filter_after = curr_filter._get_set_bits()
-
-                self.log_msg.log_local(task=6, id=self.curr_HashID.hex(), action='DBF INSERT', data={'DBF': curr_filter._get_id(),'DBF set positions': filter_before})
-                self.log_msg.log_local(task='7a', id=self.curr_HashID.hex(), action='DBF UPDATE', data={'DBF': curr_filter._get_id(),'DBF after': filter_after})
-                
+     
 
     def combine_DBFs(self):
         """
         Combines all available DBFs into a single bloom filter.
-
         """
         aggr_bloomFilter = bloomFilter(n=self.n, m=800_000)
         curr_DBF_list = self.DBF_list.get_curr_DBF_queue()
