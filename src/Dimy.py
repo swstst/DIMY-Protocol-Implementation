@@ -2,6 +2,7 @@ import sys
 import threading
 import socket
 import pickle
+import struct
 import random
 import time
 import logging
@@ -83,6 +84,7 @@ class Client:
             hash_EphID = bytearray(
                 SHA256.new(data=self.curr_EphID.to_bytes(32, byteorder="big")).digest()
             )[0:3]
+            self.curr_HashID = hash_EphID
 
             self.log_msg.log_local(task=1, id=hash_EphID.hex(), action="EPHID GEN", data={'EphID': f"{self.curr_EphID.to_bytes(32, byteorder='big')[0:6].hex()}.."})
 
@@ -112,7 +114,7 @@ class Client:
         while not self.stop_event.is_set():
             
             shares = self.shares_queue.get(block=True)
-            self.curr_HashID = self.hashID_queue.get(block=True)
+            #self.curr_HashID = self.hashID_queue.get(block=True)
 
             for i, share in enumerate(shares):
                 start_timer = time.perf_counter()
@@ -206,11 +208,11 @@ class Client:
         """
         Diffie-Hellman Key Exchange to construct EncID.
         """
-        private_key = self.curr_secret
-        public_key = self.curr_EphID
-
         # if hashID that was in place when the shares were collected isnt the current, that its the previous one
-        if used_hashID != self.curr_HashID:
+        if used_hashID == self.curr_HashID:
+            private_key = self.curr_secret
+            public_key = self.curr_EphID
+        else:
             private_key = self.prev_secret
             public_key = self.prev_EphID
         
@@ -329,8 +331,13 @@ class Client:
         sock.connect(('127.0.0.1', 55000))
 
         self.log_msg.log_local(task='config', id=self.curr_HashID.hex(), action="TCP INIT", data={'TCP port': 55000})
+    
+        main_payload = pickle.dumps((bf_type.encode(), data))
+       
+        # send header (amount of data to be sent) first
+        payload = struct.pack('!i', len(main_payload)) + main_payload
 
-        sock.sendall(pickle.dumps((bf_type.encode(), data)))
+        sock.sendall(payload)
 
         n = 9 if bf_type == 'CBF' else '10a'
         self.log_msg.send(task=n, id=self.curr_HashID.hex(), receiver='server', action=f'UPLOAD {bf_type}', data={'status': 'CONNECTED'})
