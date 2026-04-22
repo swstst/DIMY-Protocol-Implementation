@@ -47,7 +47,7 @@ class Client:
         self.prev_EphID = None
         self.prev_secret = None
 
-        self.hashID_queue = Queue(maxsize=2)
+        #self.hashID_queue = Queue(maxsize=2)
         self.shares_queue = Queue()
 
         # cache for shares received within 't'-seconds
@@ -88,11 +88,12 @@ class Client:
 
             self.log_msg.log_local(task=1, id=hash_EphID.hex(), action="EPHID GEN", data={'EphID': f"{self.curr_EphID.to_bytes(32, byteorder='big')[0:6].hex()}.."})
 
-            self.hashID_queue.put(hash_EphID)
+            #self.hashID_queue.put(hash_EphID)
 
             # split new EphID into n shares
             new_shares = ID.gen_shares(new_EphID=self.curr_EphID, k=self.k, n=self.n)
-            
+ 
+
             self.log_msg.log_local(task=2, id=hash_EphID.hex(), action="SSS SPLIT", data={'EphID': f"{self.curr_EphID.to_bytes(32, byteorder='big')[0:6].hex()}..", 'total shares': self.n})
             self.log_msg.log_local(task=2, id=hash_EphID.hex(), action="SSS GEN", data={'Shares generated:': ''})
 
@@ -406,11 +407,9 @@ class Client:
         self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # set up broadcasting socket
         self.UDP_SEND_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        
+        self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
     
-        try:
-            self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        except AttributeError:
-            pass
 
         # start listening on receiving UDP port
         self.UDP_RECV_SOCK.bind(('', self.UDP_RECV_PORT))
