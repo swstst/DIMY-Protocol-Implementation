@@ -1,11 +1,17 @@
 import math
 from bitarray import bitarray
+from bitarray.util import ba2int
 import mmh3
 from datetime import datetime
+from random import randint
 
-
+counter = randint(1000, 9999)
 class bloomFilter:
     def __init__(self, n: int, m: int):
+        global counter
+        counter += 1
+        
+        self.id = counter
         self.filter = bitarray(m)  # supposed to be 100kB
         self.filter.setall(0)
 
@@ -31,7 +37,7 @@ class bloomFilter:
 
         return positions
 
-    def add_element(self, item) -> bool:
+    def add_element(self, item) -> tuple:
         positions = self.__filter_positions__(item)
 
         try:
@@ -39,6 +45,7 @@ class bloomFilter:
                 self.filter[pos] = 1
         except:
             return False
+        
         return True
 
     def check_membership(self, item) -> bool:
@@ -60,3 +67,10 @@ class bloomFilter:
     def change_date(self, new_date):
         self.date = new_date
         return
+
+    def _get_set_bits(self) -> str:
+        positions = [i for i, bit in enumerate(self.filter) if bit]
+        return len(positions)
+
+    def _get_id(self) -> int:
+        return self.id

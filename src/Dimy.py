@@ -7,14 +7,11 @@ import time
 import logging
 from queue import *
 from Crypto.Hash import SHA256
-from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 
 from ephID import ID
-
 from bloomFilter.NodeDBFList import NodeDBFList
 from bloomFilter.bloomFilter import bloomFilter
-
 from msgFormatter import msgFormatter as MessageFormatter
 
 
@@ -45,6 +42,9 @@ class Client:
         self.curr_secret = None
         self.curr_HashID = None
 
+        self.prev_EphID = None
+        self.prev_secret = None
+
         self.hashID_queue = Queue(maxsize=2)
         self.shares_queue = Queue()
 
@@ -56,7 +56,8 @@ class Client:
 
         self.has_COVID = has_covid
 
-        self.log_msg = MessageFormatter.MessageFormatter(origin=f'client_{self.CLIENT_ID}')
+        self.log_msg = MessageFormatter.MessageFormatter(origin=f'client')
+
 
     def gen_EphID_shares(self) -> None:
         """
@@ -64,27 +65,33 @@ class Client:
         """
         while not self.stop_event.is_set():
             start_timer = time.perf_counter()
+
+            # save previous (pk, sk) for logging
+            self.prev_EphID = self.curr_EphID
+            self.prev_secret = self.curr_secret
         
             # generate new EphID
             self.curr_EphID, self.curr_secret = ID.gen_EphID()
-            self.log_msg.log_local(action="CREATED", data={'type': 'EphID', 'data': f"{self.curr_EphID.to_bytes(32, byteorder='big')[0:3].hex()}.."})
-
             # generate new HashID based on EphID
             hash_EphID = bytearray(
                 SHA256.new(data=self.curr_EphID.to_bytes(32, byteorder="big")).digest()
             )[0:3]
 
+            self.log_msg.log_local(task=1, id=hash_EphID.hex(), action="EPHID GEN", data={'EphID': f"{self.curr_EphID.to_bytes(32, byteorder='big')[0:6].hex()}.."})
+
             self.hashID_queue.put(hash_EphID)
-            self.log_msg.log_local(action="CREATED", data={'type': 'HashID', 'data': f"{hash_EphID[:].hex()}.."})
 
             # split new EphID into n shares
             new_shares = ID.gen_shares(new_EphID=self.curr_EphID, k=self.k, n=self.n)
-                
-            fshares = ', '.join(f"{share[:2].hex()}.." for share in new_shares[:self.n])
-            self.log_msg.log_local(action="CREATED", data={'type': 'Secret Shares', 'data': f"[{fshares}]"})
+            
+            self.log_msg.log_local(task=2, id=hash_EphID.hex(), action="SSS SPLIT", data={'EphID': f"{self.curr_EphID.to_bytes(32, byteorder='big')[0:6].hex()}..", 'total shares': self.n})
+            self.log_msg.log_local(task=2, id=hash_EphID.hex(), action="SSS GEN", data={'Shares generated:': ''})
 
             # store shares in broadcast queue
             self.shares_queue.put(new_shares)
+            
+            fshares = [f"share {i}: {share.hex()}" for i, share in enumerate(new_shares)]
+            self.log_msg.log_list_data(fshares)
 
             delay = time.perf_counter() - start_timer 
             
@@ -100,14 +107,14 @@ class Client:
             shares = self.shares_queue.get(block=True)
             self.curr_HashID = self.hashID_queue.get(block=True)
 
-            for share in shares:
+            for i, share in enumerate(shares):
                 start_timer = time.perf_counter()
                 
                 msg = self.curr_HashID + share
                
                 self.UDP_SEND_SOCK.sendto(msg, ('255.255.255.255', self.UDP_SEND_PORT))
-                
-                self.log_msg.send(receiver="client", action="BROADCAST", data={'hash id': f"{msg[:3].hex()}..", 'share': f"{msg[3:6].hex()}.."})
+
+                self.log_msg.send(task='3A', id=self.curr_HashID.hex(), receiver="ALL", action="SHARE BROADCAST", data={'EphID Hash': f"{self.curr_HashID.hex()}", 'share id': i, 'value': f"{share[:6].hex()}.."})
 
                 delay = time.perf_counter() - start_timer 
 
@@ -115,7 +122,6 @@ class Client:
 
         # close UDP connection
         self.UDP_SEND_SOCK.close()
-
 
     def udp_receiver(self) -> None:
         """
@@ -139,42 +145,37 @@ class Client:
                 continue
 
             # if probability < defined probability, drop message
-            p = random.randrange(0, 100)
+            p = 100 #random.randrange(0, 100)
             if p < self.p:
+                self.log_msg.recv(task='3B', sender=f"client {key.hex()}", action="SHARE DROP", data={'reason':'probability', 'p': f'{self.p}', 'rand': p})
                 continue
 
-            self.log_msg.recv(sender=f"client_{key.hex()}", data={'hash id': f"{key.hex()}", 'share': f"{ephID[:3].hex()}.."})
+            self.log_msg.recv(task='3A', sender=f"client {key.hex()}", action="SHARE RECV", data={'EphID': f"{ephID[:6].hex()}.."})
             
             # store data safely in queue to prevent race conditions
             self.recv_shares.put([key, ephID])
 
             # keep track of shares received that belong to the same ephID
-            self.update_recv_share_ids_count(key)
+            self.update_recv_share_ids_count(key, f"{ephID[:6].hex()}..")
 
         # close UDP connection
         self.UDP_RECV_SOCK.close()
 
 
-    def update_recv_share_ids_count(self, key) -> None:
+    def update_recv_share_ids_count(self, key, share) -> None:
         """
         Count number of shares recevied from the same EphID share
         """
 
-        # blocking 
         if len(self.share_ids_counter) == 0 or key.hex() not in self.share_ids_counter.keys():
-            self.share_ids_counter[key.hex()] = 1
+            self.share_ids_counter[key.hex()] = {'count': 1, 'shares': [share]}
 
         else:
-            self.share_ids_counter[key.hex()] += 1
+            self.share_ids_counter[key.hex()]['count'] += 1
+            self.share_ids_counter[key.hex()]['shares'].append(share)
 
-        self.log_msg.recv(sender=f"client_{key.hex()}", data={'hash id': key.hex(), 'i': self.share_ids_counter[key.hex()]})
-
-    def clear_share_ids_count_cache(self) -> None:
-        """
-        Free up space of same EphID share counter every t-seconds
-        """
-        self.share_ids_counter.clear()
-           
+        self.log_msg.recv(task='3C', sender=f"client {key.hex()}", action="COUNT SHARES", data={'EphID Hash': key.hex(), 'shares': f"{self.share_ids_counter[key.hex()]['shares']}", 'count': f"{self.share_ids_counter[key.hex()]['count']}/{self.n}"})
+    
     
     def reconstruct_shares(self):
         """
@@ -212,40 +213,57 @@ class Client:
                 
             for hash_id, ephID_shares in shares.items():
 
+                num_shares = len(ephID_shares)
+
                 # do nothing if not enough shares received
-                if len(ephID_shares) < self.k:
+                if num_shares < self.k:
                     continue
+
+                self.log_msg.recv(task='4a', sender=f'client {hash_id.hex()}', action='RECONSTRUCT ATTEMPT', data={'number of shares used': f'{num_shares}/{self.n}'})
+                self.log_msg.log_list_data([f"share {i}: {share.hex()}" for i, share in enumerate(ephID_shares)])
 
                 try:
                     # otherwise, reconstruct the shares
                     temp_ephID = ID.combine_shares(ephID_shares, self.k)
-                    
+
+                    self.log_msg.recv(task='4a', sender=f'client {hash_id.hex()}', action='RECONSTRUCT SUCCESS', data={'Reconstructed EphID': f'{temp_ephID[:6].hex()}..'} )
+
                 except ValueError as e:
-                    self.log_msg.log_local(action="FAIL", data={'msg': 'Failed to reconstruct Ephemeral ID shares...'})
+                    self.log_msg.recv(task='4a', sender=f'client {hash_id.hex()}', action='RECONSTRUCT FAILED', data={'error': e} )
                     continue
 
                 ephID_hash = SHA256.new(temp_ephID).digest()[0 : len(hash_id)]
 
                 # verify reconstructed shares
-                if ephID_hash != hash_id:
-                    self.log_msg.log_local(action="INVALID", data={'type': f'client {ephID_hash.hex()}', 'data': f"{ephID_shares}, {temp_ephID}"})    
+                if ephID_hash != hash_id:                    
                     continue
 
-                valid_ephID = temp_ephID
+                self.log_msg.recv(task='4b', sender=f'client {hash_id.hex()}', action='HASH VERIFY', data={'computed': ephID_hash.hex(), 'expected': hash_id.hex(), 'status': f'Hash match {ephID_hash == hash_id}'})
 
-                # successful reconstruction of shares can proceed to generate EncID. 
-                self.log_msg.log_local(action="RECREATED", data={'type': 'reconstructed EphID', 'data': f"{valid_ephID[:4].hex()}.."})
-                            
+                valid_ephID = temp_ephID
                 self.EphIDs.put(valid_ephID)
 
-                encID = int(ID.ECDH(valid_ephID, self.curr_secret))
-                self.log_msg.log_local(action="CREATED", data={'type': 'EncID', 'data': f"{str(encID)[:4]}.."})
+                # for logging
+                private_key = self.prev_secret
+                public_key = self.prev_EphID
 
+                self.log_msg.log_local(task='5a', id = self.curr_HashID.hex(), action="ECDH INIT", data={'ECDH Parameters': ''})
+                self.log_msg.log_list_data([f'private key: {private_key}', f'public key: {public_key}'])
+                self.log_msg.recv(task='5a', sender=f'client {hash_id.hex()}', action="ECDH RECV PK", data={'public key (from EphID)': f"{valid_ephID.hex()}"})
+
+                # successful reconstruction of shares can proceed to generate EncID. 
+                encID = int(ID.ECDH(pk=valid_ephID, sk=private_key))
+                self.log_msg.recv(task='5a', sender=f'client {hash_id.hex()}', action="ECDH COMPUTE", data={'EncID': f"{encID}"})
+                
                 # put encID into bloom filter
                 curr_filter = self.DBF_list.curr_DBF()
+                filter_before = curr_filter._get_set_bits()
                 curr_filter.add_element(encID.to_bytes(32, byteorder='big'))
+                filter_after = curr_filter._get_set_bits()
 
-                self.log_msg.log_local(action="UPDATED", data={'msg': 'Added EncID to DBF', 'data': ''})
+                self.log_msg.log_local(task=6, id=self.curr_HashID.hex(), action='DBF INSERT', data={'DBF': curr_filter._get_id(),'DBF set positions': filter_before})
+                self.log_msg.log_local(task='7a', id=self.curr_HashID.hex(), action='DBF UPDATE', data={'DBF': curr_filter._get_id(),'DBF after': filter_after})
+                
 
     def combine_DBFs(self):
         """
@@ -254,12 +272,14 @@ class Client:
         """
         aggr_bloomFilter = bloomFilter(n=self.n, m=800_000)
         curr_DBF_list = self.DBF_list.get_curr_DBF_queue()
-
-        curr_date = datetime.now()
         
+        curr_date = datetime.now()
+
         for dbf in curr_DBF_list:
             aggr_bloomFilter.merge_filter(dbf)
             oldest_date = min(curr_date, dbf.date)
+
+        self.log_msg.log_local(task=None, id=self.curr_HashID.hex(), action='DBF COMBINE', data={'source DBFs': [dbf._get_id() for dbf in curr_DBF_list]})
 
         return aggr_bloomFilter, oldest_date
 
@@ -272,7 +292,7 @@ class Client:
         # check if entire bitarray == 1
         if (CBF.filter).all(): print('all 1s')
 
-        self.log_msg.log_local(action="CREATED", data={'type': 'CBF'})
+        self.log_msg.log_local(task=9, id=self.curr_HashID, action='CBF MAKE', data={'CBF': CBF._get_id(), 'set bits': CBF._get_set_bits(), 'time': oldest_date.strftime("%H:%M:%S.%f")[:-4]})
 
         return CBF
 
@@ -280,8 +300,8 @@ class Client:
         combined_BF, oldest_date = self.combine_DBFs()
         combined_BF.change_date(oldest_date)
         qbf = combined_BF
-        
-        self.log_msg.log_local(action="CREATED", data={"type": "QBF", "data": (oldest_date.strftime("%H:%M:%S.%f")[:-3], len(qbf.filter))})
+
+        self.log_msg.log_local(task=8, id=self.curr_HashID.hex(), action='QBF MAKE', data={'QBF': qbf._get_id(), 'oldest DBF': oldest_date.strftime("%H:%M:%S.%f")[:-4], 'set bits': qbf._get_set_bits()})
 
         return qbf
 
@@ -290,14 +310,13 @@ class Client:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(('127.0.0.1', 55000))
 
-        self.log_msg.log_local(action="INIT", data={'TCP port': self.UDP_RECV_PORT, 'TCP port': '55000'})
+        self.log_msg.log_local(task='config', id=self.curr_HashID.hex(), action="TCP INIT", data={'TCP port': 55000})
 
         sock.sendall(pickle.dumps((bf_type.encode(), data)))
 
-        msg = "Stop QBF creation ... " if bf_type == 'CBF' else f"Querying backend server ... "
+        n = 9 if bf_type == 'CBF' else '10a'
+        self.log_msg.send(task=n, id=self.curr_HashID.hex(), receiver='server', action=f'UPLOAD {bf_type}', data={'status': 'CONNECTED'})
 
-        self.log_msg.send(receiver="server", action=f"UPLOAD {bf_type}", data={'msg': msg})
-        
         resp = sock.recv(1024).decode()
 
         sock.shutdown(1)
@@ -308,9 +327,8 @@ class Client:
 
     def upload_bf_to_server(self):
         
-        # in seconds (t * 6 * 6)
-        dt =  self.t * 6 * 6 
-
+        # in seconds (t * 6 * 6) / 60 = (t * 6 / 10)
+        dt =  self.t * 6
         # For simulating testing positive for COVID and uploading CBF
         # sent qbf counter
         num_qbf_sent = 0
@@ -325,8 +343,6 @@ class Client:
                 
                 resp = self.send(data=cbf, bf_type='CBF')
 
-                self.log_msg.recv(sender="server", data={'msg': resp})
-
                 self.stop_qbf_upload.set()
 
                 continue
@@ -336,13 +352,10 @@ class Client:
              
             resp = self.send(data=qbf, bf_type='QBF')
 
-            self.log_msg.recv(sender="server", data={'msg': resp})
-
             num_qbf_sent += 1
 
             if resp == 'MATCH FOUND':
-                self.log_msg.recv(sender="server", data={'msg': f"{resp}! Close contact alert."})
-                                
+                self.log_msg.recv(task='10b', sender='server', action='RISK MATCH', data={'match': 'TRUE', 'message': 'Exposure detected'})
                 '''
                 # The probability of contracting COVID-19 after exposure varies widely, 
                 # generally ranging from roughly 2% for brief, close contact (under an hour) 
@@ -350,6 +363,10 @@ class Client:
                 '''
 
                 self.has_COVID = True if random.randrange(0, 1000) < 2 else False
+            else:
+                self.log_msg.recv(task='10b', sender='server', action='RISK NO MATCH', data={'match': 'FALSE', 'message': 'No exposure'})
+                
+                
 
     def run(self):
         """
@@ -367,15 +384,12 @@ class Client:
     
         try:
             self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-
         except AttributeError:
             pass
 
         # start listening on receiving UDP port
         self.UDP_RECV_SOCK.bind(('', self.UDP_RECV_PORT))
-        
-        self.log_msg.log_local(action="INIT", data={'status': 'listening', 'port': self.UDP_SEND_PORT })
-        
+                
         # init threads
         udp_recv_thread = threading.Thread(target=self.udp_receiver, daemon=False)
         broadcast_shares_thread = threading.Thread(target=self.broadcast_shares, daemon=False)

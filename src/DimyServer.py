@@ -1,6 +1,5 @@
 import threading
 import socket, pickle
-from bitarray import bitarray
 from collections import deque
 
 from msgFormatter import msgFormatter as MessageFormatter
@@ -21,7 +20,6 @@ class Server:
         # prevent race condition
         cbfs = self.CBFs.copy()
 
-
         if not len(cbfs):
             return False 
         
@@ -29,8 +27,10 @@ class Server:
             
             # if QBF creation time is after CBF upload, then ignore
             if QBF.date > cbf.date:
+                self.format_msg.log_local(task='10c', id=None, action='QBF CBF COMPARE', data={'In date range?': 'FALSE', f'QBF': QBF._get_id(), 'CBF': cbf._get_id()})
                 break
-            
+
+            self.format_msg.log_local(task='10c', id=None, action='QBF CBF COMPARE', data={'In date range?': 'TRUE', f'QBF': QBF._get_id(), 'CBF': cbf._get_id()})
             matching = QBF.filter & cbf.filter 
             
             if matching.count(1) >= QBF.k:
@@ -43,7 +43,7 @@ class Server:
         """
         Handles each client connection
         """   
-        self.format_msg.log_local(action="INIT", data={'msg': "new Client Connected"})
+        self.format_msg.log_local(task='config', id=None, action="TCP CONNECT", data={'msg': "New client connected."})
 
         # data sent by client will always be QBF/CBF = 100kB = 800_000b
         TOTAL_SIZE = 800_000
@@ -66,32 +66,28 @@ class Server:
 
             header = header.decode()
 
-            self.format_msg.recv(sender="client", data={'type': header, 'data length': len(data)})
-
             if header == "CBF":
                 self.CBFs.appendleft(bf)
                 
                 client_socket.sendall("200".encode())
 
-                self.format_msg.send(receiver="client", action="RESPONSE", data={'status': '200'})
+                self.format_msg.recv(task=9, sender='client', action="CBF UPLOAD", data={'status': 'SUCCESS', 'CBF': bf._get_id(), 'set bits': bf._get_set_bits(), 'date range': bf.date.strftime("%H:%M:%S.%f")[:-4]})
 
             elif header == "QBF":
                 match = self._QBF_matching(QBF=bf)
+
+                self.format_msg.recv(task='10c', sender='client', action='QBF RECV', data={'status': 'SUCCESS', 'QBF': bf._get_id(), 'set bits': bf._get_set_bits(), 'date range': bf.date.strftime("%H:%M:%S.%f")[:-4]})
                 
                 if match:
                     client_socket.sendall("MATCH FOUND".encode())
-                    
-                    self.format_msg.send(receiver="client", action="RESPONSE", data={'msg': 'MATCH FOUND'})
+                    self.format_msg.log_local(task='10c', id=None, action='MATCH FOUND', data={'QBF': bf._get_id()})
                     
                 else:
                     client_socket.sendall("NO MATCH".encode())
-                    
-                    self.format_msg.send(receiver="client", action="RESPONSE", data={'msg': 'NO MATCH'})
+                    self.format_msg.log_local(task='10c', id=None, action='NO MATCH FOUND', data={'QBF': bf._get_id()})
 
             else:
                 client_socket.sendall("WRONG INPUT".encode())
-                
-                self.format_msg.send(receiver="client", action="RESPONSE", data={'msg': 'WRONG INPUT'})
                 
         except ConnectionResetError:
             print("Client disconnected abruptly")
@@ -106,7 +102,8 @@ class Server:
         self.TCP_SOCK.listen()
 
         # pretty print
-        self.format_msg.log_local(action="INIT", data={'addr': self.ADDR, 'port': self.PORT})
+        self.format_msg.log_local(task='config', id=None, action="TCP INIT", data={'addr': self.ADDR, 'port': self.PORT})
+        
         print_log_thread = threading.Thread(target=self.format_msg.print_logs, daemon=False)
         print_log_thread.start()
 

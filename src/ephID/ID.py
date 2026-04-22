@@ -71,9 +71,6 @@ def combine_shares(shares: list, k: int) -> bytearray:
     return:
         the shares back, the shares are in form (idx, share)
     """
-    # sanitized_shares = list(set(bytes(s) for s in shares))
-    # if len(sanitized_shares) < k:
-    #     raise ValueError("less than k shares after sanitization")
 
     recovered = combine(shares)
         
@@ -103,8 +100,6 @@ def ECDH(pk, sk):
 
     # Tonelli-Shanks Algorithm to get Mod roots
     y = pow(y_squared, (p + 1) // 4, p)  # get the y back ( decompress )
-
-    # TODO confirm that this has neglible guessing advantage
 
     assert (y * y) % p == y_squared
 
