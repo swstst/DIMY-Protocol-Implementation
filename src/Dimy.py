@@ -50,7 +50,6 @@ class Client:
         self.shares_queue = Queue()
 
         # cache for shares received within 't'-seconds
-        self.temp_recv_shares_cache = Queue()
         self.shares_received = dict()
         self.shares_id_to_reconstruct = Queue()
 
@@ -161,9 +160,6 @@ class Client:
 
             self.log_msg.recv(task='3A', sender=f"client {key.hex()}", action="SHARE RECV", data={'EphID': f"{ephID[:6].hex()}.."})
             
-            # store data safely in queue to prevent race conditions
-            self.temp_recv_shares_cache.put([key, ephID])
-
             # keep track of shares received that belong to the same ephID
             self.update_recv_share_ids_count(key, ephID)
 
