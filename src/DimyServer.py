@@ -1,5 +1,5 @@
 import threading
-import socket, pickle
+import socket, pickle, struct
 from collections import deque
 
 from msgFormatter import msgFormatter as MessageFormatter
@@ -45,8 +45,6 @@ class Server:
         """   
         self.format_msg.log_local(task='config', id=None, action="TCP CONNECT", data={'msg': "New client connected."})
 
-        # data sent by client will always be QBF/CBF = 100kB = 800_000b
-        TOTAL_SIZE = 800_000
         # receive data 2000b at a time
         BUFF_SIZE = 4096
         
@@ -54,13 +52,21 @@ class Server:
 
         try:            
             # read data in chunks
-            while len(data) <= TOTAL_SIZE:
-                chunk = client_socket.recv(BUFF_SIZE)
+            chunk = client_socket.recv(BUFF_SIZE)
+            if not chunk:
+                raise ConnectionError("Socket closed")
 
+            TOTAL_SIZE = struct.unpack('!i', chunk[:4])[0] 
+            first_chunk = chunk[4:]
+            
+            data += first_chunk 
+            
+            while len(data) < TOTAL_SIZE:
+                chunk = client_socket.recv(BUFF_SIZE)
+                if not chunk:
+                    break
                 data += chunk
                     
-                if len(chunk) < BUFF_SIZE:
-                    break
 
             header, bf = pickle.loads(data)
 

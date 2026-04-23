@@ -2,6 +2,7 @@ import sys
 import threading
 import socket
 import pickle
+import struct
 import random
 import time
 import logging
@@ -37,6 +38,7 @@ class Client:
 
         self.stop_event = threading.Event()
         self.stop_qbf_upload = threading.Event()
+        self.k_shares_received = threading.Event()
          
         self.curr_EphID = None
         self.curr_secret = None
@@ -45,12 +47,13 @@ class Client:
         self.prev_EphID = None
         self.prev_secret = None
 
-        self.hashID_queue = Queue(maxsize=2)
+        #self.hashID_queue = Queue(maxsize=2)
         self.shares_queue = Queue()
 
-        # shares received within 't'-seconds
-        self.recv_shares = Queue()
-        self.share_ids_counter = dict()
+        # cache for shares received within 't'-seconds
+        self.temp_recv_shares_cache = Queue()
+        self.shares_received = dict()
+        self.shares_id_to_reconstruct = Queue()
 
         self.EphIDs = Queue()
 
@@ -72,18 +75,25 @@ class Client:
         
             # generate new EphID
             self.curr_EphID, self.curr_secret = ID.gen_EphID()
+
+            if type(self.prev_EphID) == type(None) or type(self.prev_secret) == type(None):
+                self.prev_EphID = self.curr_EphID
+                self.prev_secret = self.curr_secret
+                
             # generate new HashID based on EphID
             hash_EphID = bytearray(
                 SHA256.new(data=self.curr_EphID.to_bytes(32, byteorder="big")).digest()
             )[0:3]
+            self.curr_HashID = hash_EphID
 
             self.log_msg.log_local(task=1, id=hash_EphID.hex(), action="EPHID GEN", data={'EphID': f"{self.curr_EphID.to_bytes(32, byteorder='big')[0:6].hex()}.."})
 
-            self.hashID_queue.put(hash_EphID)
+            #self.hashID_queue.put(hash_EphID)
 
             # split new EphID into n shares
             new_shares = ID.gen_shares(new_EphID=self.curr_EphID, k=self.k, n=self.n)
-            
+ 
+
             self.log_msg.log_local(task=2, id=hash_EphID.hex(), action="SSS SPLIT", data={'EphID': f"{self.curr_EphID.to_bytes(32, byteorder='big')[0:6].hex()}..", 'total shares': self.n})
             self.log_msg.log_local(task=2, id=hash_EphID.hex(), action="SSS GEN", data={'Shares generated:': ''})
 
@@ -105,7 +115,7 @@ class Client:
         while not self.stop_event.is_set():
             
             shares = self.shares_queue.get(block=True)
-            self.curr_HashID = self.hashID_queue.get(block=True)
+            #self.curr_HashID = self.hashID_queue.get(block=True)
 
             for i, share in enumerate(shares):
                 start_timer = time.perf_counter()
@@ -153,122 +163,133 @@ class Client:
             self.log_msg.recv(task='3A', sender=f"client {key.hex()}", action="SHARE RECV", data={'EphID': f"{ephID[:6].hex()}.."})
             
             # store data safely in queue to prevent race conditions
-            self.recv_shares.put([key, ephID])
+            self.temp_recv_shares_cache.put([key, ephID])
 
             # keep track of shares received that belong to the same ephID
-            self.update_recv_share_ids_count(key, f"{ephID[:6].hex()}..")
+            self.update_recv_share_ids_count(key, ephID)
 
+            # check if k-shares are received
+            self.check_k_shares_received(key)
+            
         # close UDP connection
         self.UDP_RECV_SOCK.close()
 
-
     def update_recv_share_ids_count(self, key, share) -> None:
         """
-        Count number of shares recevied from the same EphID share
+        Update number of shares received per hash ID
         """
+        hash_id = key.hex() 
 
-        if len(self.share_ids_counter) == 0 or key.hex() not in self.share_ids_counter.keys():
-            self.share_ids_counter[key.hex()] = {'count': 1, 'shares': [share]}
+        if len(self.shares_received) == 0 or key.hex() not in self.shares_received.keys():
+            self.shares_received[hash_id] = {'count': 1, 'shares': [share]}
 
         else:
-            self.share_ids_counter[key.hex()]['count'] += 1
-            self.share_ids_counter[key.hex()]['shares'].append(share)
+            self.shares_received[hash_id]['count'] += 1
+            self.shares_received[hash_id]['shares'].append(share)
 
-        self.log_msg.recv(task='3C', sender=f"client {key.hex()}", action="COUNT SHARES", data={'EphID Hash': key.hex(), 'shares': f"{self.share_ids_counter[key.hex()]['shares']}", 'count': f"{self.share_ids_counter[key.hex()]['count']}/{self.n}"})
-    
-    
+        format_shares = ', '.join(f"{share[:2].hex()}...{share[-2:].hex()}" for share in self.shares_received[hash_id]['shares'])
+
+        self.log_msg.recv(task='3C', sender=f"client {hash_id}", action="COUNT SHARES", data={'EphID Hash': hash_id, 'count': f"{self.shares_received[hash_id]['count']}/{self.n}", 'shares': f"{format_shares}"})
+
+
+    def check_k_shares_received(self, key) -> None:
+        """
+        Check if k-shares of a certain hash ID has been received.
+        """
+        
+        if self.shares_received[key.hex()]['count'] < self.k:
+            return
+
+        self.shares_id_to_reconstruct.put((key.hex(), self.curr_HashID))
+
+        self.k_shares_received.set()
+
+
+    def compute_DHKE_EncID(self, ephID, used_hashID) -> int:
+        """
+        Diffie-Hellman Key Exchange to construct EncID.
+        """
+        # if hashID that was in place when the shares were collected isnt the current, that its the previous one
+        if used_hashID == self.curr_HashID:
+            private_key = self.curr_secret
+            public_key = self.curr_EphID
+        else:
+            private_key = self.prev_secret
+            public_key = self.prev_EphID
+        
+        encID = int(ID.ECDH(pk=ephID, sk=private_key))
+        hash_id = SHA256.new(ephID).digest()[0 : 3].hex()
+        
+        self.log_msg.log_local(task='5a', id = self.curr_HashID.hex(), action="ECDH INIT", data={'ECDH Parameters': ''})
+        self.log_msg.log_list_data([f'private key: {hex(private_key)}', f'public key: {hex(public_key)}'])
+        
+        self.log_msg.recv(task='5a', sender=f'client {hash_id}', action="ECDH COMPUTE PK", data={'public key (from EphID)': f"{ephID.hex()}"})
+
+        return encID
+
+    def add_EncID_in_dbf(self, encID) -> None:
+
+        curr_filter = self.DBF_list.curr_DBF()
+        filter_before = curr_filter._get_set_bits()
+        curr_filter.add_element(encID.to_bytes(32, byteorder='big'))
+        filter_after = curr_filter._get_set_bits()
+
+        self.log_msg.log_local(task=6, id=self.curr_HashID.hex(), action='DBF INSERT', data={'DBF': curr_filter._get_id(),'DBF set positions': filter_before})
+        self.log_msg.log_local(task='7a', id=self.curr_HashID.hex(), action='DBF UPDATE', data={'DBF': curr_filter._get_id(),'DBF after': filter_after})
+
     def reconstruct_shares(self):
         """
-        Check if k-shares have been received for any clients given t seconds.
+        Reconstruct shares once k-shares have been received.
         """
-        delay = self.t
-        elapsed_time = 0
-
         while not self.stop_event.is_set():
             
-            # attempt to reconstruct received shares every t-interval
-            time.sleep(delay - elapsed_time)
+            # check if k_shares have been received
+            if not self.k_shares_received.is_set():
+                continue
 
-            # make a copy of the received shares queue
-            recv_shares_copy = self.recv_shares
+            # reconstruct shares from queue based on hash ID
+            hash_id, used_hashID = self.shares_id_to_reconstruct.get(block = True)
 
-            # get length of received shares copy to prevent race conditions
-            num_recv_shares = recv_shares_copy.qsize()
+            # get shares
+            k_shares = self.shares_received[hash_id]['shares']
 
-            # temporary hash map to store and process received shares
-            shares = dict()
+            self.log_msg.recv(task='4a', sender=f'client {hash_id}', action='RECONSTRUCT ATTEMPT', data={'number of shares used': f'{len(k_shares)}/{self.n}'})
+            self.log_msg.log_list_data([f"share {i}: {share.hex()}" for i, share in enumerate(k_shares)])
 
-            # remove processed shares from recv_shares queue
-            for _ in range(num_recv_shares):
-
-                data = self.recv_shares.get()
-
-                k, v = bytes(data[0]), data[1]
-
-                if k not in shares.keys():
-                    shares[k] = [v]
-                    continue
-
-                shares[k].append(v)
+            try:
+                temp_ephID = ID.combine_shares(k_shares, self.k)
+                self.log_msg.recv(task='4a', sender=f'client {hash_id}', action='RECONSTRUCT SUCCESS', data={'Reconstructed EphID': f'{temp_ephID[:6].hex()}..'} )
                 
-            for hash_id, ephID_shares in shares.items():
+            except ValueError as e:
+                print('in err')
+                self.log_msg.recv(task='4a', sender=f'client {hash_id}', action='RECONSTRUCT FAILED', data={'error': e} )
+                continue
+            
+            temp_hash_id = SHA256.new(temp_ephID).digest()[0 : 3]
 
-                num_shares = len(ephID_shares)
+            self.log_msg.recv(task='4b', sender=f'client {hash_id}', action='HASH VERIFY', data={'computed': temp_hash_id.hex(), 'expected': hash_id, 'status': f'Hash match {temp_hash_id.hex() == hash_id}'})
+            
+            if temp_hash_id.hex() != hash_id:
+                continue
 
-                # do nothing if not enough shares received
-                if num_shares < self.k:
-                    continue
+            valid_ephID = temp_ephID
+            
+            self.EphIDs.put(valid_ephID)
 
-                self.log_msg.recv(task='4a', sender=f'client {hash_id.hex()}', action='RECONSTRUCT ATTEMPT', data={'number of shares used': f'{num_shares}/{self.n}'})
-                self.log_msg.log_list_data([f"share {i}: {share.hex()}" for i, share in enumerate(ephID_shares)])
+            # compute EncID
+            encID = self.compute_DHKE_EncID(valid_ephID, used_hashID)
+            self.log_msg.recv(task='5a', sender=f'client {hash_id}', action="ECDH COMPUTE", data={'EncID': f"{encID}"})
 
-                try:
-                    # otherwise, reconstruct the shares
-                    temp_ephID = ID.combine_shares(ephID_shares, self.k)
-
-                    self.log_msg.recv(task='4a', sender=f'client {hash_id.hex()}', action='RECONSTRUCT SUCCESS', data={'Reconstructed EphID': f'{temp_ephID[:6].hex()}..'} )
-
-                except ValueError as e:
-                    self.log_msg.recv(task='4a', sender=f'client {hash_id.hex()}', action='RECONSTRUCT FAILED', data={'error': e} )
-                    continue
-
-                ephID_hash = SHA256.new(temp_ephID).digest()[0 : len(hash_id)]
-
-                # verify reconstructed shares
-                if ephID_hash != hash_id:                    
-                    continue
-
-                self.log_msg.recv(task='4b', sender=f'client {hash_id.hex()}', action='HASH VERIFY', data={'computed': ephID_hash.hex(), 'expected': hash_id.hex(), 'status': f'Hash match {ephID_hash == hash_id}'})
-
-                valid_ephID = temp_ephID
-                self.EphIDs.put(valid_ephID)
-
-                # for logging
-                private_key = self.prev_secret
-                public_key = self.prev_EphID
-
-                self.log_msg.log_local(task='5a', id = self.curr_HashID.hex(), action="ECDH INIT", data={'ECDH Parameters': ''})
-                self.log_msg.log_list_data([f'private key: {private_key}', f'public key: {public_key}'])
-                self.log_msg.recv(task='5a', sender=f'client {hash_id.hex()}', action="ECDH RECV PK", data={'public key (from EphID)': f"{valid_ephID.hex()}"})
-
-                # successful reconstruction of shares can proceed to generate EncID. 
-                encID = int(ID.ECDH(pk=valid_ephID, sk=private_key))
-                self.log_msg.recv(task='5a', sender=f'client {hash_id.hex()}', action="ECDH COMPUTE", data={'EncID': f"{encID}"})
-                
-                # put encID into bloom filter
-                curr_filter = self.DBF_list.curr_DBF()
-                filter_before = curr_filter._get_set_bits()
-                curr_filter.add_element(encID.to_bytes(32, byteorder='big'))
-                filter_after = curr_filter._get_set_bits()
-
-                self.log_msg.log_local(task=6, id=self.curr_HashID.hex(), action='DBF INSERT', data={'DBF': curr_filter._get_id(),'DBF set positions': filter_before})
-                self.log_msg.log_local(task='7a', id=self.curr_HashID.hex(), action='DBF UPDATE', data={'DBF': curr_filter._get_id(),'DBF after': filter_after})
-                
+            # put EncID into DBF
+            self.add_EncID_in_dbf(encID)
+                        
+            # reset flag 
+            self.k_shares_received.clear()
+     
 
     def combine_DBFs(self):
         """
         Combines all available DBFs into a single bloom filter.
-
         """
         aggr_bloomFilter = bloomFilter(n=self.n, m=800_000)
         curr_DBF_list = self.DBF_list.get_curr_DBF_queue()
@@ -311,8 +332,13 @@ class Client:
         sock.connect(('127.0.0.1', 55000))
 
         self.log_msg.log_local(task='config', id=self.curr_HashID.hex(), action="TCP INIT", data={'TCP port': 55000})
+    
+        main_payload = pickle.dumps((bf_type.encode(), data))
+       
+        # send header (amount of data to be sent) first
+        payload = struct.pack('!i', len(main_payload)) + main_payload
 
-        sock.sendall(pickle.dumps((bf_type.encode(), data)))
+        sock.sendall(payload)
 
         n = 9 if bf_type == 'CBF' else '10a'
         self.log_msg.send(task=n, id=self.curr_HashID.hex(), receiver='server', action=f'UPLOAD {bf_type}', data={'status': 'CONNECTED'})
@@ -381,11 +407,9 @@ class Client:
         self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # set up broadcasting socket
         self.UDP_SEND_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        
+        self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
     
-        try:
-            self.UDP_RECV_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        except AttributeError:
-            pass
 
         # start listening on receiving UDP port
         self.UDP_RECV_SOCK.bind(('', self.UDP_RECV_PORT))
