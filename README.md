@@ -1,4 +1,5 @@
 # DIMY-Protocol-Implementation
+https://www.sciencedirect.com/science/article/pii/S108480452200025X
 
 ## Changes From Official Protocol
 - Broadcast is changed to every 3 seconds
