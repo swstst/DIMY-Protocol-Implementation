@@ -281,9 +281,6 @@ class Client:
             self.add_EncID_in_dbf(encID)
 
             self.shares_received.pop(hash_id)
-            
-            # reset flag 
-            # self.k_shares_received.clear()
      
 
     def combine_DBFs(self):
