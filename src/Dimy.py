@@ -182,10 +182,7 @@ class Client:
             self.shares_received[hash_id]['count'] += 1
             self.shares_received[hash_id]['shares'].append(share)
 
-        format_shares = ', '.join(f"{share[:2].hex()}...{share[-2:].hex()}" for share in self.shares_received[hash_id]['shares'])
-
-        self.log_msg.recv(task='3C', sender=f"client {hash_id}", action="COUNT SHARES", data={'EphID Hash': hash_id, 'count': f"{self.shares_received[hash_id]['count']}/{self.n}", 'shares': f"{format_shares}"})
-
+        self.log_msg.recv(task='3C', sender=f"client {hash_id}", action="COUNT SHARES", data={'EphID Hash': hash_id, 'shares count': f"{self.shares_received[hash_id]['count']}/{self.n}"})
 
     def check_k_shares_received(self, key) -> None:
         """
@@ -213,10 +210,10 @@ class Client:
         encID = int(ID.ECDH(pk=ephID, sk=private_key))
         hash_id = SHA256.new(ephID).digest()[0 : 3].hex()
         
-        self.log_msg.log_local(task='5a', id = self.curr_HashID.hex(), action="ECDH INIT", data={'ECDH Parameters': ''})
+        self.log_msg.log_local(task='5A', id = self.curr_HashID.hex(), action="ECDH INIT", data={'ECDH Parameters': ''})
         self.log_msg.log_list_data([f'private key: {hex(private_key)}', f'public key: {hex(public_key)}'])
         
-        self.log_msg.recv(task='5a', sender=f'client {hash_id}', action="ECDH COMPUTE PK", data={'public key (from EphID)': f"{ephID.hex()}"})
+        self.log_msg.recv(task='5A', sender=f'client {hash_id}', action="ECDH COMPUTE PK", data={'public key (from EphID)': f"{ephID.hex()}"})
 
         return encID
 
@@ -233,32 +230,43 @@ class Client:
     def reconstruct_shares(self):
         """
         Reconstruct shares once k-shares have been received.
+
+        case 1: k-shares have not been received in t * self.k seconds
+        case 2: if failed to reconstruct shares, then shares will be deleted
         """
         while not self.stop_event.is_set():
             
             # reconstruct shares from queue based on hash ID
-            hash_id, used_hashID = self.shares_id_to_reconstruct.get(block = True)
+            hash_id, used_hashID = self.shares_id_to_reconstruct.get(block=True)
 
             # get shares
             k_shares = self.shares_received[hash_id]['shares']
 
-            self.log_msg.recv(task='4a', sender=f'client {hash_id}', action='RECONSTRUCT ATTEMPT', data={'number of shares used': f'{len(k_shares)}/{self.n}'})
+            self.log_msg.recv(task='4A', sender=f'client {hash_id}', action='RECONSTRUCT ATTEMPT', data={'number of shares used': f'{len(k_shares)}/{self.n}'})
             self.log_msg.log_list_data([f"share {i}: {share.hex()}" for i, share in enumerate(k_shares)])
 
             try:
                 temp_ephID = ID.combine_shares(k_shares, self.k)
-                self.log_msg.recv(task='4a', sender=f'client {hash_id}', action='RECONSTRUCT SUCCESS', data={'Reconstructed EphID': f'{temp_ephID[:6].hex()}..'} )
+                self.log_msg.recv(task='4A', sender=f'client {hash_id}', action='RECONSTRUCT SUCCESS', data={'Reconstructed EphID': f'{temp_ephID[:6].hex()}..'} )
                 
             except ValueError as e:
-                print('in err')
-                self.log_msg.recv(task='4a', sender=f'client {hash_id}', action='RECONSTRUCT FAILED', data={'error': e} )
+                self.log_msg.recv(task='4A', sender=f'client {hash_id}', action='RECONSTRUCT FAILED', data={'error': e} )
+                
+                # delete the shares 
+                self.shares_received.pop(hash_id)
+                self.log_msg.recv(task='4B', sender=f'client {hash_id}', action='DELETE SHARES', data={'reason': 'Reconstruction failed', 'removed all shares with hash id': hash_id})
+                
                 continue
             
             temp_hash_id = SHA256.new(temp_ephID).digest()[0 : 3]
 
-            self.log_msg.recv(task='4b', sender=f'client {hash_id}', action='HASH VERIFY', data={'computed': temp_hash_id.hex(), 'expected': hash_id, 'status': f'Hash match {temp_hash_id.hex() == hash_id}'})
+            self.log_msg.recv(task='4B', sender=f'client {hash_id}', action='HASH VERIFY', data={'computed': temp_hash_id.hex(), 'expected': hash_id, 'status': f'Hash match {temp_hash_id.hex() == hash_id}'})
             
             if temp_hash_id.hex() != hash_id:
+                self.shares_received.pop(hash_id)
+                
+                self.log_msg.recv(task='4B', sender=f'client {hash_id}', action='DELETE SHARES', data={'reason': 'Hash verification failed', 'removed all shares with hash id': hash_id})
+                
                 continue
 
             valid_ephID = temp_ephID
@@ -267,11 +275,15 @@ class Client:
 
             # compute EncID
             encID = self.compute_DHKE_EncID(valid_ephID, used_hashID)
-            self.log_msg.recv(task='5a', sender=f'client {hash_id}', action="ECDH COMPUTE", data={'EncID': f"{encID}"})
+            self.log_msg.recv(task='5A', sender=f'client {hash_id}', action="ECDH COMPUTE", data={'EncID': f"{encID}"})
 
             # put EncID into DBF
             self.add_EncID_in_dbf(encID)
-                        
+
+            self.shares_received.pop(hash_id)
+            
+            # reset flag 
+            # self.k_shares_received.clear()
      
 
     def combine_DBFs(self):
@@ -368,7 +380,7 @@ class Client:
             num_qbf_sent += 1
 
             if resp == 'MATCH FOUND':
-                self.log_msg.recv(task='10b', sender='server', action='RISK MATCH', data={'match': 'TRUE', 'message': 'Exposure detected'})
+                self.log_msg.recv(task='10B', sender='server', action='RISK MATCH', data={'match': 'TRUE', 'message': 'Exposure detected'})
                 '''
                 # The probability of contracting COVID-19 after exposure varies widely, 
                 # generally ranging from roughly 2% for brief, close contact (under an hour) 
@@ -377,7 +389,7 @@ class Client:
 
                 self.has_COVID = True if random.randrange(0, 1000) < 2 else False
             else:
-                self.log_msg.recv(task='10b', sender='server', action='RISK NO MATCH', data={'match': 'FALSE', 'message': 'No exposure'})
+                self.log_msg.recv(task='10B', sender='server', action='RISK NO MATCH', data={'match': 'FALSE', 'message': 'No exposure'})
                 
                 
 

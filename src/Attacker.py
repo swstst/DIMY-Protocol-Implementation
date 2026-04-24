@@ -77,11 +77,13 @@ class Attacker:
             i = random.randrange(3, len(temp))
 
             # for logging
-            original = temp[i - 2: i + 5]
+            original = bytearray(temp[i - 2: i + 5]).hex()
 
             temp[i] ^= 1
 
-            self.log_msg.log_local(task=11, id=None, action='MODIFY SHARE', data={'Hash id': share[:3].hex(), 'original': original, 'modified': temp[i - 2: i + 1]})
+            modified = bytearray(temp[i - 2: i + 5]).hex()
+
+            self.log_msg.log_local(task=11, id=None, action='MODIFY SHARE', data={'Hash id': share[:3].hex(), 'original': original, 'modified': modified})
             
             return bytearray(temp.tobytes())
 
@@ -94,9 +96,7 @@ class Attacker:
             self.log_msg.log_local(task=11, id=None, action='WAITING FOR SHARES', data={'msg': 'waiting for clients ...'})
             
             while not self.stop_event.is_set():
-                  # An attacker is more likely to succeed the more bogus shares it broadcasts. 
-                  time.sleep(1)
-
+                  time.sleep(0.5)
                   try:
                         curr_share = self.recv_shares.get(block=False)
                         prev_share = curr_share.copy()
@@ -115,7 +115,7 @@ class Attacker:
                   # broadcast the share
                   self.send_sock.sendto(bogus_share, ('255.255.255.255', self.send_port))
 
-                  self.log_msg.send(task=11, id=None, receiver='client', action='SHARE BROADCAST', data={'hash id': f"{bogus_share[:3].hex()}..", 'modified share': f"{bogus_share[3:6].hex()}.."})
+                  self.log_msg.send(task=11, id=None, receiver='client', action='SHARE BROADCAST', data={'hash id': f"{bogus_share[:3].hex()}", 'modified share': f"{bogus_share[3:6].hex()}.."})
 
       def run(self) -> None:
             # enable address reuse for receiving socket

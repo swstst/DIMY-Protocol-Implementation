@@ -7,7 +7,7 @@ class MessageFormatter:
 
       def base_log(self, task: str | int | None, action: str, data=None) -> list:
             time = datetime.now().strftime("%H:%M:%S.%f")[:-4]
-            task_tag = ("[TASK {:<3}]".format(task) if task != 'config' else '[{:<8}]'.format('CONFIG')) if type(task) != type(None) else ""
+            task_tag = ("[TASK {:<3}]".format(task) if task != 'config' else '[{:<8}]'.format('CONFIG')) if type(task) != type(None) else " " * 10
             type_tag = "| {:<20} |".format(action)
             fdata = '; '.join(f"{k} = {v}" for k, v in data.items()) if data else ''
             
