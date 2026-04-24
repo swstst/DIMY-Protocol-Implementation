@@ -47,7 +47,6 @@ class Client:
         self.prev_EphID = None
         self.prev_secret = None
 
-        # self.hashID_queue = Queue(maxsize=2)
         self.shares_queue = Queue()
 
         # cache for shares received within 't'-seconds
@@ -73,21 +72,22 @@ class Client:
             self.prev_secret = self.curr_secret
         
             # generate new EphID
-            self.curr_EphID, self.curr_secret = ID.gen_EphID()
+            tmp_curr_EphID, tmp_curr_secret = ID.gen_EphID()
 
             if type(self.prev_EphID) == type(None) or type(self.prev_secret) == type(None):
-                self.prev_EphID = self.curr_EphID
-                self.prev_secret = self.curr_secret
+                self.prev_EphID = tmp_curr_EphID
+                self.prev_secret = tmp_curr_secret
                 
             # generate new HashID based on EphID
             hash_EphID = bytearray(
-                SHA256.new(data=self.curr_EphID.to_bytes(32, byteorder="big")).digest()
+                SHA256.new(data=tmp_curr_EphID.to_bytes(32, byteorder="big")).digest()
             )[0:3]
+            self.curr_EphID = tmp_curr_EphID
+            self.curr_secret = tmp_curr_secret
             self.curr_HashID = hash_EphID
 
             self.log_msg.log_local(task=1, id=hash_EphID.hex(), action="EPHID GEN", data={'EphID': f"{self.curr_EphID.to_bytes(32, byteorder='big')[0:6].hex()}.."})
 
-            # self.hashID_queue.put(hash_EphID)
 
             # split new EphID into n shares
             new_shares = ID.gen_shares(new_EphID=self.curr_EphID, k=self.k, n=self.n)
@@ -114,7 +114,6 @@ class Client:
         while not self.stop_event.is_set():
             
             shares = self.shares_queue.get(block=True)
-            #self.curr_HashID = self.hashID_queue.get(block=True)
 
             for i, share in enumerate(shares):
                 start_timer = time.perf_counter()
@@ -195,8 +194,6 @@ class Client:
 
         self.shares_id_to_reconstruct.put((key.hex(), self.curr_HashID))
 
-        # self.k_shares_received.set()
-
 
     def compute_DHKE_EncID(self, ephID, used_hashID) -> int:
         """
@@ -239,10 +236,6 @@ class Client:
         """
         while not self.stop_event.is_set():
             
-            # check if k_shares have been received
-            # if not self.k_shares_received.is_set():
-            #     continue
-
             # reconstruct shares from queue based on hash ID
             hash_id, used_hashID = self.shares_id_to_reconstruct.get(block=True)
 
